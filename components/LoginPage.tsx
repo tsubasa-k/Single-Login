@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import * as authService from '../services/authService';
@@ -21,9 +20,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
     setIsLoading(true);
 
     try {
-      const result = await authService.loginUser(username, password);
-      if (result.success) {
-        auth.login(username);
+      const deviceId = authService.getOrCreateDeviceId();
+      const result = await authService.loginUser(username, password, deviceId);
+      if (result.success && result.sessionId) {
+        auth.login(username, result.sessionId);
       } else {
         setError(result.message);
       }

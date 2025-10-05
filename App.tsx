@@ -2,14 +2,14 @@ import React, { useState, useEffect, createContext, useCallback } from 'react';
 import { LoginPage } from './components/LoginPage';
 import { HomePage } from './components/HomePage';
 import { RegisterPage } from './components/RegisterPage';
-import { User, AuthContextType } from './types';
+import { CurrentUser, AuthContextType } from './types';
 import * as authService from './services/authService';
 import { SunIcon, MoonIcon } from './components/icons';
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const logout = useCallback(async () => {
@@ -23,14 +23,17 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   }, [currentUser]);
 
   useEffect(() => {
-    const checkActiveSession = () => {
+    const validateSession = () => {
       try {
         const storedUserStr = sessionStorage.getItem('currentUser');
         if (storedUserStr) {
-          const storedUser: User = JSON.parse(storedUserStr);
-          if (authService.isSessionValid(storedUser.username)) {
+          const storedUser: CurrentUser = JSON.parse(storedUserStr);
+          const deviceId = authService.getOrCreateDeviceId();
+          
+          if (authService.isSessionStillValid(storedUser.username, deviceId, storedUser.sessionId)) {
             setCurrentUser(storedUser);
           } else {
+            setCurrentUser(null);
             sessionStorage.removeItem('currentUser');
           }
         }
@@ -41,14 +44,23 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       setIsLoading(false);
     };
 
-    checkActiveSession();
-    
-    // 在永久設備鎖定模式下，不再需要監聽 localStorage 的變化來處理跨分頁登出，
-    // 因為驗證僅在登入時進行。
+    validateSession();
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'user_accounts') {
+        validateSession();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
-  const login = useCallback((username: string) => {
-    const user = { username };
+  const login = useCallback((username: string, sessionId: string) => {
+    const user: CurrentUser = { username, sessionId };
     setCurrentUser(user);
     sessionStorage.setItem('currentUser', JSON.stringify(user));
   }, []);

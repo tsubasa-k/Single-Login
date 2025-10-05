@@ -1,15 +1,21 @@
 const USER_ACCOUNTS_KEY = 'user_accounts';
-const DEVICE_ID_KEY = 'device_unique_id';
+const DEVICE_ID_KEY = 'app_device_id';
+
+interface UserAccount {
+  password: string;
+  loggedInDeviceId: string | null;
+  activeSessionId: string | null;
+}
 
 // 模擬儲存在 localStorage 中的使用者資料庫
-const getInitialUsers = (): { [key: string]: { password: string; deviceId: string | null } } => {
+const getInitialUsers = (): { [key: string]: UserAccount } => {
   return {
-    'user1': { password: 'password123', deviceId: null },
-    'user2': { password: 'password123', deviceId: null },
+    'user1': { password: 'password123', loggedInDeviceId: null, activeSessionId: null },
+    'user2': { password: 'password123', loggedInDeviceId: null, activeSessionId: null },
   };
 };
 
-const getUserAccounts = (): { [key: string]: { password: string; deviceId: string | null } } => {
+const getUserAccounts = (): { [key: string]: UserAccount } => {
   try {
     const accounts = localStorage.getItem(USER_ACCOUNTS_KEY);
     if (!accounts) {
@@ -26,19 +32,18 @@ const getUserAccounts = (): { [key: string]: { password: string; deviceId: strin
   }
 };
 
-const setUserAccounts = (accounts: { [key: string]: { password: string; deviceId: string | null } }): void => {
+const setUserAccounts = (accounts: { [key: string]: UserAccount }): void => {
   localStorage.setItem(USER_ACCOUNTS_KEY, JSON.stringify(accounts));
 };
 
-// 獲取或生成一個唯一的設備 ID
-const getDeviceId = (): string => {
-  let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-  if (!deviceId) {
-    deviceId = self.crypto.randomUUID();
-    localStorage.setItem(DEVICE_ID_KEY, deviceId);
-  }
-  return deviceId;
-};
+export const getOrCreateDeviceId = (): string => {
+    let deviceId = localStorage.getItem(DEVICE_ID_KEY);
+    if (!deviceId) {
+        deviceId = self.crypto.randomUUID();
+        localStorage.setItem(DEVICE_ID_KEY, deviceId);
+    }
+    return deviceId;
+}
 
 export const registerUser = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -48,49 +53,59 @@ export const registerUser = async (username: string, password: string): Promise<
     return { success: false, message: '此使用者名稱已被註冊。' };
   }
   
-  // 註冊時不綁定設備，將 deviceId 設為 null，允許在任何設備上進行首次登入
-  accounts[username] = { password, deviceId: null };
+  accounts[username] = { password, loggedInDeviceId: null, activeSessionId: null };
   setUserAccounts(accounts);
   
   return { success: true, message: '註冊成功！您現在可以登入。' };
 };
 
-export const loginUser = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
+export const loginUser = async (username: string, password: string, deviceId: string): Promise<{ success: boolean; message: string; sessionId?: string; }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
 
   const accounts = getUserAccounts();
   const userAccount = accounts[username];
 
-  // 步驟 1: 驗證使用者名稱和密碼
   if (!userAccount || userAccount.password !== password) {
     return { success: false, message: '無效的使用者名稱或密碼。' };
   }
 
-  const currentDeviceId = getDeviceId();
-
-  // 步驟 2: 檢查設備 ID
-  if (userAccount.deviceId === null) {
-    // 首次登入：將當前設備 ID 永久綁定到此帳號
-    userAccount.deviceId = currentDeviceId;
-    setUserAccounts(accounts);
-  } else if (userAccount.deviceId !== currentDeviceId) {
-    // 非首次登入且設備 ID 不匹配：拒絕登入
-    return { success: false, message: '此帳號已被永久鎖定至另一台設備。' };
+  // 檢查是否已有活躍的會話
+  if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
+    // 會話已在某處活躍
+    if (userAccount.loggedInDeviceId !== deviceId) {
+      // 活躍在不同的裝置上
+      return { success: false, message: '此帳號已在另一台裝置上登入。請先從該裝置登出。' };
+    } else {
+      // 活躍在同一個瀏覽器的另一個分頁
+      return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。請先登出。' };
+    }
   }
 
-  // 步驟 3: 登入成功 (設備 ID 匹配或首次綁定成功)
-  return { success: true, message: '登入成功！' };
+  // 沒有活躍會話，允許登入
+  const newSessionId = self.crypto.randomUUID();
+  userAccount.loggedInDeviceId = deviceId;
+  userAccount.activeSessionId = newSessionId;
+  setUserAccounts(accounts);
+
+  return { success: true, message: '登入成功！', sessionId: newSessionId };
 };
 
 export const logoutUser = async (username: string): Promise<void> => {
   await new Promise(resolve => setTimeout(resolve, 300));
-  // 在永久設備鎖定模式下，登出時無需處理共享的會話狀態。
-  // 客戶端將清除 sessionStorage。
+  const accounts = getUserAccounts();
+  const userAccount = accounts[username];
+  if (userAccount) {
+    userAccount.loggedInDeviceId = null;
+    userAccount.activeSessionId = null;
+    setUserAccounts(accounts);
+  }
 };
 
-export const isSessionValid = (username: string): boolean => {
-  // 只要使用者帳號存在，其在 sessionStorage 中的會話就是有效的。
-  // 真正的驗證發生在登入（login）時。
+export const isSessionStillValid = (username: string, deviceId: string, sessionId: string): boolean => {
   const accounts = getUserAccounts();
-  return !!accounts[username];
+  const userAccount = accounts[username];
+  // 會話有效的條件是：裝置 ID 匹配，且會話 ID 是目前活躍的會話 ID。
+  return !!userAccount && 
+         userAccount.loggedInDeviceId === deviceId &&
+         userAccount.activeSessionId === sessionId;
 };
