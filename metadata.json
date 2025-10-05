@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Single Session Login",
+  "description": "An application to demonstrate how to enforce a single active session per user account, preventing multiple simultaneous logins with the same credentials.",
+  "requestFramePermissions": []
+}
