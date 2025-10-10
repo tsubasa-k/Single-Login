@@ -5,7 +5,7 @@ interface UserAccount {
   password: string;
   loggedInDeviceId: string | null;
   activeSessionId: string | null;
-  loggedInIp: string | null; // 新增欄位來儲存登入時的 IP
+  loggedInIp: string | null;
 }
 
 // 模擬儲存在 localStorage 中的使用者資料庫
@@ -46,17 +46,33 @@ export const getOrCreateDeviceId = (): string => {
     return deviceId;
 }
 
-// 新增一個函數來獲取使用者的公網 IP
+// **更新後的函數：增加了備援機制和更詳細的錯誤日誌**
 const getUserIP = async (): Promise<string | null> => {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
-    return data.ip;
-  } catch (error) {
-    console.error("Could not fetch user IP", error);
-    return null; // 如果 API 失敗，則返回 null
+  const ipServices = [
+    'https://api.ipify.org?format=json',
+    'https://jsonip.com',
+    'https://ipinfo.io/json'
+  ];
+
+  for (const url of ipServices) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Service ${url} returned status ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.ip) {
+        return data.ip;
+      }
+    } catch (error) {
+      console.warn(`Failed to fetch IP from ${url}. Trying next service.`, error);
+    }
   }
+  
+  console.error("All IP services failed. Could not determine user IP.");
+  return null;
 };
+
 
 export const registerUser = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -94,8 +110,8 @@ export const loginUser = async (username: string, password: string, deviceId: st
       // 活躍在不同的裝置或網路上
       return { success: false, message: `此帳號已在另一台裝置 (IP: ${userAccount.loggedInIp}) 上登入。請先從該裝置登出。` };
     } else {
-      // 這不太可能發生，但作為一個保險措施
-      return { success: false, message: '此帳號已在此瀏覽器中登入。' };
+      // 活躍在同一個瀏覽器的另一個分頁
+      return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。請先登出。' };
     }
   }
 
