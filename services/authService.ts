@@ -46,30 +46,24 @@ export const getOrCreateDeviceId = (): string => {
     return deviceId;
 }
 
-// **更新後的函數：增加了備援機制和更詳細的錯誤日誌**
 const getUserIP = async (): Promise<string | null> => {
   const ipServices = [
     'https://api.ipify.org?format=json',
     'https://jsonip.com',
-    'https://ipinfo.io/json'
   ];
 
   for (const url of ipServices) {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Service ${url} returned status ${response.status}`);
-      }
+      const response = await fetch(url, { signal: AbortSignal.timeout(2000) }); // 增加 2 秒超時
+      if (!response.ok) throw new Error(`Status ${response.status}`);
       const data = await response.json();
-      if (data.ip) {
-        return data.ip;
-      }
+      if (data.ip) return data.ip;
     } catch (error) {
-      console.warn(`Failed to fetch IP from ${url}. Trying next service.`, error);
+      console.warn(`Failed to fetch IP from ${url}:`, error);
     }
   }
   
-  console.error("All IP services failed. Could not determine user IP.");
+  console.error("All IP services failed. IP validation will be skipped.");
   return null;
 };
 
@@ -93,33 +87,35 @@ export const loginUser = async (username: string, password: string, deviceId: st
 
   const accounts = getUserAccounts();
   const userAccount = accounts[username];
-  const currentUserIp = await getUserIP();
-
+  
   if (!userAccount || userAccount.password !== password) {
     return { success: false, message: '無效的使用者名稱或密碼。' };
   }
   
-  if (!currentUserIp) {
-      return { success: false, message: '無法驗證您的網路環境，請稍後再試。' };
-  }
+  const currentUserIp = await getUserIP(); // 嘗試獲取 IP
 
   // 檢查是否已有活躍的會話
-  if (userAccount.loggedInDeviceId && userAccount.activeSessionId && userAccount.loggedInIp) {
-    // 會話已在某處活躍
-    if (userAccount.loggedInDeviceId !== deviceId || userAccount.loggedInIp !== currentUserIp) {
-      // 活躍在不同的裝置或網路上
-      return { success: false, message: `此帳號已在另一台裝置 (IP: ${userAccount.loggedInIp}) 上登入。請先從該裝置登出。` };
+  if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
+    // 如果能獲取到 IP，則進行嚴格比對
+    if (currentUserIp && userAccount.loggedInIp) {
+      if (userAccount.loggedInDeviceId !== deviceId || userAccount.loggedInIp !== currentUserIp) {
+        return { success: false, message: `此帳號已在另一台裝置 (IP: ${userAccount.loggedInIp}) 上登入。` };
+      }
     } else {
-      // 活躍在同一個瀏覽器的另一個分頁
-      return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。請先登出。' };
+      // 如果無法獲取 IP，則降級為只比對 deviceId
+      if (userAccount.loggedInDeviceId !== deviceId) {
+         return { success: false, message: '此帳號已在另一台裝置上登入。' };
+      }
     }
+     // 如果 deviceId 相同，也視為已登入 (例如在同一個瀏覽器的不同分頁)
+     return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。' };
   }
 
   // 沒有活躍會話，允許登入
   const newSessionId = self.crypto.randomUUID();
   userAccount.loggedInDeviceId = deviceId;
   userAccount.activeSessionId = newSessionId;
-  userAccount.loggedInIp = currentUserIp; // 儲存 IP
+  userAccount.loggedInIp = currentUserIp; // 儲存獲取到的 IP，如果失敗則為 null
   setUserAccounts(accounts);
 
   return { success: true, message: '登入成功！', sessionId: newSessionId };
@@ -132,7 +128,7 @@ export const logoutUser = async (username: string): Promise<void> => {
   if (userAccount) {
     userAccount.loggedInDeviceId = null;
     userAccount.activeSessionId = null;
-    userAccount.loggedInIp = null; // 登出時清除 IP
+    userAccount.loggedInIp = null;
     setUserAccounts(accounts);
   }
 };
@@ -140,14 +136,20 @@ export const logoutUser = async (username: string): Promise<void> => {
 export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
   const accounts = getUserAccounts();
   const userAccount = accounts[username];
-  const currentUserIp = await getUserIP();
-
-  if (!userAccount || !currentUserIp) {
-    return false;
-  }
+  if (!userAccount) return false;
   
-  // 會話有效的條件是：裝置 ID 匹配，會話 ID 匹配，且 IP 地址也匹配。
-  return userAccount.loggedInDeviceId === deviceId &&
-         userAccount.activeSessionId === sessionId &&
-         userAccount.loggedInIp === currentUserIp;
+  // 基本驗證
+  if (userAccount.loggedInDeviceId !== deviceId || userAccount.activeSessionId !== sessionId) {
+      return false;
+  }
+
+  // 盡力而為的 IP 驗證
+  const currentUserIp = await getUserIP();
+  // 只有在當時登入成功獲取了 IP，並且現在也能成功獲取 IP 的情況下，才進行 IP 比對
+  if (userAccount.loggedInIp && currentUserIp && userAccount.loggedInIp !== currentUserIp) {
+      console.warn("Session IP mismatch. Logging out.");
+      return false;
+  }
+
+  return true;
 };
