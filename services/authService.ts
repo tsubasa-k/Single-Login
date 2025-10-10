@@ -5,13 +5,14 @@ interface UserAccount {
   password: string;
   loggedInDeviceId: string | null;
   activeSessionId: string | null;
+  loggedInIp: string | null; // 新增欄位來儲存登入時的 IP
 }
 
 // 模擬儲存在 localStorage 中的使用者資料庫
 const getInitialUsers = (): { [key: string]: UserAccount } => {
   return {
-    'user1': { password: 'password123', loggedInDeviceId: null, activeSessionId: null },
-    'user2': { password: 'password123', loggedInDeviceId: null, activeSessionId: null },
+    'user1': { password: 'password123', loggedInDeviceId: null, activeSessionId: null, loggedInIp: null },
+    'user2': { password: 'password123', loggedInDeviceId: null, activeSessionId: null, loggedInIp: null },
   };
 };
 
@@ -45,6 +46,18 @@ export const getOrCreateDeviceId = (): string => {
     return deviceId;
 }
 
+// 新增一個函數來獲取使用者的公網 IP
+const getUserIP = async (): Promise<string | null> => {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    return data.ip;
+  } catch (error) {
+    console.error("Could not fetch user IP", error);
+    return null; // 如果 API 失敗，則返回 null
+  }
+};
+
 export const registerUser = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
   
@@ -53,7 +66,7 @@ export const registerUser = async (username: string, password: string): Promise<
     return { success: false, message: '此使用者名稱已被註冊。' };
   }
   
-  accounts[username] = { password, loggedInDeviceId: null, activeSessionId: null };
+  accounts[username] = { password, loggedInDeviceId: null, activeSessionId: null, loggedInIp: null };
   setUserAccounts(accounts);
   
   return { success: true, message: '註冊成功！您現在可以登入。' };
@@ -64,20 +77,25 @@ export const loginUser = async (username: string, password: string, deviceId: st
 
   const accounts = getUserAccounts();
   const userAccount = accounts[username];
+  const currentUserIp = await getUserIP();
 
   if (!userAccount || userAccount.password !== password) {
     return { success: false, message: '無效的使用者名稱或密碼。' };
   }
+  
+  if (!currentUserIp) {
+      return { success: false, message: '無法驗證您的網路環境，請稍後再試。' };
+  }
 
   // 檢查是否已有活躍的會話
-  if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
+  if (userAccount.loggedInDeviceId && userAccount.activeSessionId && userAccount.loggedInIp) {
     // 會話已在某處活躍
-    if (userAccount.loggedInDeviceId !== deviceId) {
-      // 活躍在不同的裝置上
-      return { success: false, message: '此帳號已在另一台裝置上登入。請先從該裝置登出。' };
+    if (userAccount.loggedInDeviceId !== deviceId || userAccount.loggedInIp !== currentUserIp) {
+      // 活躍在不同的裝置或網路上
+      return { success: false, message: `此帳號已在另一台裝置 (IP: ${userAccount.loggedInIp}) 上登入。請先從該裝置登出。` };
     } else {
-      // 活躍在同一個瀏覽器的另一個分頁
-      return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。請先登出。' };
+      // 這不太可能發生，但作為一個保險措施
+      return { success: false, message: '此帳號已在此瀏覽器中登入。' };
     }
   }
 
@@ -85,6 +103,7 @@ export const loginUser = async (username: string, password: string, deviceId: st
   const newSessionId = self.crypto.randomUUID();
   userAccount.loggedInDeviceId = deviceId;
   userAccount.activeSessionId = newSessionId;
+  userAccount.loggedInIp = currentUserIp; // 儲存 IP
   setUserAccounts(accounts);
 
   return { success: true, message: '登入成功！', sessionId: newSessionId };
@@ -97,15 +116,22 @@ export const logoutUser = async (username: string): Promise<void> => {
   if (userAccount) {
     userAccount.loggedInDeviceId = null;
     userAccount.activeSessionId = null;
+    userAccount.loggedInIp = null; // 登出時清除 IP
     setUserAccounts(accounts);
   }
 };
 
-export const isSessionStillValid = (username: string, deviceId: string, sessionId: string): boolean => {
+export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
   const accounts = getUserAccounts();
   const userAccount = accounts[username];
-  // 會話有效的條件是：裝置 ID 匹配，且會話 ID 是目前活躍的會話 ID。
-  return !!userAccount && 
-         userAccount.loggedInDeviceId === deviceId &&
-         userAccount.activeSessionId === sessionId;
+  const currentUserIp = await getUserIP();
+
+  if (!userAccount || !currentUserIp) {
+    return false;
+  }
+  
+  // 會話有效的條件是：裝置 ID 匹配，會話 ID 匹配，且 IP 地址也匹配。
+  return userAccount.loggedInDeviceId === deviceId &&
+         userAccount.activeSessionId === sessionId &&
+         userAccount.loggedInIp === currentUserIp;
 };
