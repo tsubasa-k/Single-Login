@@ -23,18 +23,20 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   }, [currentUser]);
 
   useEffect(() => {
-    const validateSession = () => {
+    const validateSession = async () => { // 改為 async 函數
       try {
         const storedUserStr = sessionStorage.getItem('currentUser');
         if (storedUserStr) {
           const storedUser: CurrentUser = JSON.parse(storedUserStr);
           const deviceId = authService.getOrCreateDeviceId();
           
-          if (authService.isSessionStillValid(storedUser.username, deviceId, storedUser.sessionId)) {
+          // 使用 await 來呼叫異步函數
+          if (await authService.isSessionStillValid(storedUser.username, deviceId, storedUser.sessionId)) {
             setCurrentUser(storedUser);
           } else {
             setCurrentUser(null);
             sessionStorage.removeItem('currentUser');
+            // 可以選擇在這裡給使用者一個提示，說明會話因 IP 變更等原因而失效
           }
         }
       } catch (error) {
@@ -54,8 +56,12 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
     window.addEventListener('storage', handleStorageChange);
 
+    // 增加一個計時器，定期檢查會話有效性（例如，每分鐘一次）
+    const intervalId = setInterval(validateSession, 60000); 
+
     return () => {
       window.removeEventListener('storage', handleStorageChange);
+      clearInterval(intervalId); // 清除計時器
     };
   }, []);
 
