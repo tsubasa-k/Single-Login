@@ -22,21 +22,45 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     }
   }, [currentUser]);
 
+  // ▼▼▼ START: 新增自動登出邏輯 ▼▼▼
   useEffect(() => {
-    const validateSession = async () => { // 改為 async 函數
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      // 大部分的現代瀏覽器為了安全，會忽略 event.returnValue 的自訂訊息
+      // 但某些舊版瀏覽器可能需要
+      event.preventDefault(); 
+      if (currentUser) {
+        // 使用 navigator.sendBeacon 來確保請求在頁面關閉前發送
+        // 由於 logoutUser 是非同步的，且 sendBeacon 不處理非同步，
+        // 這裡我們只處理前端狀態，後端的 session 會因為定期檢查而失效。
+        // 對於您的 Firebase 方案，登出是必要的。
+        // 但 sendBeacon 只能發送 POST 請求，logoutUser 需要更複雜的邏輯
+        // 因此這裡我們直接觸發 logout，並依賴瀏覽器盡力完成
+        logout();
+      }
+    };
+
+    // 頁面關閉或刷新時觸發
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [currentUser, logout]);
+  // ▲▲▲ END: 新增自動登出邏輯 ▲▲▲
+
+  useEffect(() => {
+    const validateSession = async () => {
       try {
         const storedUserStr = sessionStorage.getItem('currentUser');
         if (storedUserStr) {
           const storedUser: CurrentUser = JSON.parse(storedUserStr);
           const deviceId = authService.getOrCreateDeviceId();
           
-          // 使用 await 來呼叫異步函數
           if (await authService.isSessionStillValid(storedUser.username, deviceId, storedUser.sessionId)) {
             setCurrentUser(storedUser);
           } else {
             setCurrentUser(null);
             sessionStorage.removeItem('currentUser');
-            // 可以選擇在這裡給使用者一個提示，說明會話因 IP 變更等原因而失效
           }
         }
       } catch (error) {
@@ -47,21 +71,12 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     };
 
     validateSession();
-
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'user_accounts') {
-        validateSession();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-
-    // 增加一個計時器，定期檢查會話有效性（例如，每分鐘一次）
+    
+    // 定期檢查會話有效性
     const intervalId = setInterval(validateSession, 60000); 
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(intervalId); // 清除計時器
+      clearInterval(intervalId);
     };
   }, []);
 
