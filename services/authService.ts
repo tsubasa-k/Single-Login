@@ -1,3 +1,5 @@
+// services/authService.ts
+
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig"; // 引入我們設定好的 Firestore 實體
 
@@ -25,6 +27,9 @@ export const getOrCreateDeviceId = (): string => {
 // 獲取公網 IP 的輔助函數
 const getUserIP = async (): Promise<string | null> => {
   try {
+    // 由於您的應用程式部署在 Cloudflare Pages 上，
+    // 可以考慮使用 Cloudflare 提供的服務來取得 IP，
+    // 或是使用既有的 ipify API。
     const response = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(3000) });
     if (!response.ok) throw new Error(`Status ${response.status}`);
     const data = await response.json();
@@ -41,7 +46,7 @@ export const registerUser = async (username: string, password: string): Promise<
   const userSnap = await getDoc(userRef);
 
   if (userSnap.exists()) {
-    return { success: false, message: '此使用者名稱已被註rayed註冊。' };
+    return { success: false, message: '此使用者名稱已被註冊。' };
   }
 
   const newUser: UserAccount = {
@@ -70,9 +75,10 @@ export const loginUser = async (username: string, password: string, deviceId: st
     return { success: false, message: '無效的使用者名稱或密碼。' };
   }
 
+  // **核心修改**
   if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
       const ipInfo = userAccount.loggedInIp ? ` (IP: ${userAccount.loggedInIp})` : '';
-      return { success: false, message: `此帳號已在另一台裝置${ipInfo}上登入。` };
+      return { success: false, message: `此帳號已在另一台裝置${ipInfo}上登入。後登入者無法登入。` };
   }
 
   const currentUserIp = await getUserIP();
@@ -110,15 +116,10 @@ export const isSessionStillValid = async (username: string, deviceId: string, se
 
   const userAccount = userSnap.data() as UserAccount;
 
+  // 只要 deviceId 或 sessionId 不符，就視為無效
   if (userAccount.loggedInDeviceId !== deviceId || userAccount.activeSessionId !== sessionId) {
     return false;
   }
-  
-  // 這裡可以選擇性地加入 IP 驗證，如果需要的話
-  // const currentUserIp = await getUserIP();
-  // if (userAccount.loggedInIp && currentUserIp && userAccount.loggedInIp !== currentUserIp) {
-  //   return false;
-  // }
 
   return true;
 };
