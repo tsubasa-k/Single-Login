@@ -54,7 +54,7 @@ const getUserIP = async (): Promise<string | null> => {
 
   for (const url of ipServices) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2000) }); // 增加 2 秒超時
+      const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
       if (!response.ok) throw new Error(`Status ${response.status}`);
       const data = await response.json();
       if (data.ip) return data.ip;
@@ -82,6 +82,7 @@ export const registerUser = async (username: string, password: string): Promise<
   return { success: true, message: '註冊成功！您現在可以登入。' };
 };
 
+// --- START: 已修正的核心邏輯 ---
 export const loginUser = async (username: string, password: string, deviceId: string): Promise<{ success: boolean; message: string; sessionId?: string; }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -92,26 +93,21 @@ export const loginUser = async (username: string, password: string, deviceId: st
     return { success: false, message: '無效的使用者名稱或密碼。' };
   }
   
-  const currentUserIp = await getUserIP(); // 嘗試獲取 IP
-
   // 檢查是否已有活躍的會話
   if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
-    // 如果能獲取到 IP，則進行嚴格比對
-    if (currentUserIp && userAccount.loggedInIp) {
-      if (userAccount.loggedInDeviceId !== deviceId || userAccount.loggedInIp !== currentUserIp) {
-        return { success: false, message: `此帳號已在另一台裝置 (IP: ${userAccount.loggedInIp}) 上登入。` };
-      }
-    } else {
-      // 如果無法獲取 IP，則降級為只比對 deviceId
+      // 如果 deviceId 不相同，代表是從不同的裝置或瀏覽器登入
       if (userAccount.loggedInDeviceId !== deviceId) {
-         return { success: false, message: '此帳號已在另一台裝置上登入。' };
+          const ipInfo = userAccount.loggedInIp ? ` (IP: ${userAccount.loggedInIp})` : '';
+          return { success: false, message: `此帳號已在另一台裝置${ipInfo}上登入。請先從該裝置登出。` };
+      } 
+      // 如果 deviceId 相同，代表是在同一個瀏覽器的不同分頁嘗試登入
+      else {
+          return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。請先登出。' };
       }
-    }
-     // 如果 deviceId 相同，也視為已登入 (例如在同一個瀏覽器的不同分頁)
-     return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。' };
   }
 
   // 沒有活躍會話，允許登入
+  const currentUserIp = await getUserIP(); // 只有在確定要登入時才獲取 IP
   const newSessionId = self.crypto.randomUUID();
   userAccount.loggedInDeviceId = deviceId;
   userAccount.activeSessionId = newSessionId;
@@ -120,6 +116,7 @@ export const loginUser = async (username: string, password: string, deviceId: st
 
   return { success: true, message: '登入成功！', sessionId: newSessionId };
 };
+// --- END: 已修正的核心邏輯 ---
 
 export const logoutUser = async (username: string): Promise<void> => {
   await new Promise(resolve => setTimeout(resolve, 300));
