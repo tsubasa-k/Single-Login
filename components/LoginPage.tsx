@@ -8,8 +8,10 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
-  const [username, setUsername] = useState('user1');
-  const [password, setPassword] = useState('password123');
+  // ▼▼▼ START: 修改此處 ▼▼▼
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  // ▲▲▲ END: 修改此處 ▲▲▲
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const auth = useAuth();
@@ -65,11 +67,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
-                placeholder="例如：user1"
+                placeholder="您的使用者名稱"
                 required
               />
             </div>
-             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">提示：可使用 `user1` 或 `user2`，密碼為 `password123`。</p>
+             {/* ▼▼▼ START: 移除提示文字 ▼▼▼ */}
+             {/* <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">提示：可使用 `user1` 或 `user2`，密碼為 `password123`。</p> */}
+             {/* ▲▲▲ END: 移除提示文字 ▲▲▲ */}
           </div>
 
           <div>
@@ -111,9 +115,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 註冊
             </button>
          </div>
-         <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 text-center text-sm text-slate-500 dark:text-slate-400">
+         {/* ▼▼▼ START: 移除測試提示 ▼▼▼ */}
+         {/* <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 text-center text-sm text-slate-500 dark:text-slate-400">
             若要測試，請在另一個瀏覽器分頁中用相同帳號登入。
-         </div>
+         </div> */}
+         {/* ▲▲▲ END: 移除測試提示 ▲▲▲ */}
       </div>
     </div>
   );
