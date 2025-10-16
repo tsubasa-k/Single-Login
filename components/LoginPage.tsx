@@ -1,182 +1,126 @@
-import { db } from './firebaseConfig';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore";
+import React, { useState } from 'react';
+import { useAuth } from '../hooks/useAuth';
+import * as authService from '../services/authService';
+import { UserIcon, LockIcon } from './icons';
 
-const DEVICE_ID_KEY = 'app_device_id';
-
-export const getOrCreateDeviceId = (): string => {
-    let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-    if (!deviceId) {
-        deviceId = self.crypto.randomUUID();
-        localStorage.setItem(DEVICE_ID_KEY, deviceId);
-    }
-    return deviceId;
+interface LoginPageProps {
+  onSwitchToRegister: () => void;
 }
 
-// ▼▼▼ START: 修改此處 ▼▼▼
-const getUserIP = async (): Promise<string | null> => {
-  // 移除有問題的 'jsonip.com'，並新增一個穩定可靠的 'ipinfo.io' 作為備援
-  const ipServices = [
-    'https://api.ipify.org?format=json',
-    'https://ipinfo.io/json'
-  ];
+export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
+  // ▼▼▼ START: 修改此處 ▼▼▼
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  // ▲▲▲ END: 修改此處 ▲▲▲
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const auth = useAuth();
 
-  for (const url of ipServices) {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(3000) }); // 稍微延長超時時間
-      if (!response.ok) throw new Error(`Status ${response.status}`);
-      const data = await response.json();
-      // 兩個服務的回傳格式都包含 'ip' 欄位，所以既有邏輯不需更改
-      if (data.ip) return data.ip;
-    } catch (error) { 
-      console.warn(`Failed to fetch IP from ${url}:`, error);
-    }
-  }
-  
-  console.error("All IP services failed. Unable to verify location.");
-  return null;
-};
-// ▲▲▲ END: 修改此處 ▲▲▲
-
-// --- START: 受信任裝置模型的核心邏輯 ---
-
-export const registerUser = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  if (!username.trim()) return { success: false, message: '使用者名稱不能為空。' };
-
-  const userRef = doc(db, "users", username);
-  const userSnap = await getDoc(userRef);
-
-  if (userSnap.exists()) {
-    return { success: false, message: '此使用者名稱已被註冊。' };
-  }
-  
-  await setDoc(userRef, {
-      password,
-      loggedInDeviceId: null,
-      activeSessionId: null,
-      loggedInIp: null,
-      trustedDevices: [],
-      verificationCode: null,
-      verificationCodeExpires: null,
-      createdAt: serverTimestamp()
-  });
-  
-  return { success: true, message: '註冊成功！您現在可以登入。' };
-};
-
-export type LoginResult = {
-    success: boolean;
-    message: string;
-    sessionId?: string;
-    verificationRequired?: boolean;
-};
-
-export const loginUser = async (username: string, password: string, deviceId: string): Promise<LoginResult> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-
-  const userRef = doc(db, "users", username);
-  const userSnap = await getDoc(userRef);
-  
-  if (!userSnap.exists()) return { success: false, message: '無效的使用者名稱或密碼。' };
-  
-  const userAccount = userSnap.data();
-
-  if (userAccount.password !== password) return { success: false, message: '無效的使用者名稱或密碼。' };
-  
-  if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
-      if (userAccount.loggedInDeviceId !== deviceId) {
-          const ipInfo = userAccount.loggedInIp ? ` (IP: ${userAccount.loggedInIp})` : '';
-          return { success: false, message: `此帳號已在另一台裝置${ipInfo}上登入。` };
+      const deviceId = authService.getOrCreateDeviceId();
+      const result = await authService.loginUser(username, password, deviceId);
+      if (result.success && result.sessionId) {
+        auth.login(username, result.sessionId);
       } else {
-          return { success: false, message: '此帳號已在此瀏覽器的另一個分頁中登入。' };
+        setError(result.message);
       }
-  }
-
-  const currentUserIp = await getUserIP();
-  if (!currentUserIp) return { success: false, message: "無法取得您的 IP 位址，登入失敗。" };
-
-  const isKnownDevice = userAccount.trustedDevices?.some((device: any) => device.deviceId === deviceId);
-
-  if (isKnownDevice || userAccount.trustedDevices?.length === 0) {
-    const newSessionId = self.crypto.randomUUID();
-    const newDeviceEntry = { deviceId, ip: currentUserIp, addedAt: serverTimestamp() };
-
-    await updateDoc(userRef, {
-        loggedInDeviceId: deviceId,
-        activeSessionId: newSessionId,
-        loggedInIp: currentUserIp,
-        lastLogin: serverTimestamp(),
-        trustedDevices: userAccount.trustedDevices?.length === 0 ? arrayUnion(newDeviceEntry) : userAccount.trustedDevices,
-    });
-    return { success: true, message: '登入成功！', sessionId: newSessionId };
-  } else {
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date();
-    expires.setMinutes(expires.getMinutes() + 10);
-
-    await updateDoc(userRef, {
-        verificationCode,
-        verificationCodeExpires: expires,
-        pendingDeviceId: deviceId,
-        loggedInIp: currentUserIp,
-    });
-
-    console.log(`Verification code for ${username}: ${verificationCode}`);
-    return { success: false, message: '偵測到新裝置登入，需要驗證。', verificationRequired: true };
-  }
-};
-
-export const verifyNewDevice = async (username: string, code: string): Promise<{ success: boolean, message: string, sessionId?: string }> => {
-    const userRef = doc(db, "users", username);
-    const userSnap = await getDoc(userRef);
-
-    if (!userSnap.exists()) return { success: false, message: "找不到使用者。" };
-    
-    const userAccount = userSnap.data();
-
-    if (userAccount.verificationCode !== code) return { success: false, message: "驗證碼錯誤。" };
-    
-    if (!userAccount.verificationCodeExpires || new Date() > userAccount.verificationCodeExpires.toDate()) {
-        return { success: false, message: "驗證碼已過期。" };
+    } catch (err) {
+      setError('發生意外錯誤，請再試一次。');
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    const newSessionId = self.crypto.randomUUID();
-    const newDeviceEntry = { 
-        deviceId: userAccount.pendingDeviceId, 
-        ip: userAccount.loggedInIp, 
-        addedAt: serverTimestamp() 
-    };
+  return (
+    <div className="w-full max-w-md">
+      <div className="bg-white dark:bg-slate-800 shadow-2xl rounded-xl p-8">
+        <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-white mb-2">
+          歡迎回來
+        </h2>
+        <p className="text-center text-slate-500 dark:text-slate-400 mb-8">
+          登入以繼續
+        </p>
 
-    await updateDoc(userRef, {
-        loggedInDeviceId: userAccount.pendingDeviceId,
-        activeSessionId: newSessionId,
-        lastLogin: serverTimestamp(),
-        trustedDevices: arrayUnion(newDeviceEntry),
-        verificationCode: null,
-        verificationCodeExpires: null,
-        pendingDeviceId: null,
-    });
+        {error && (
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md" role="alert">
+            <p>{error}</p>
+          </div>
+        )}
 
-    return { success: true, message: "新裝置驗證成功！", sessionId: newSessionId };
-};
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="username" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">
+              使用者名稱
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <UserIcon className="h-5 w-5 text-slate-400" />
+              </div>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
+                placeholder="您的使用者名稱"
+                required
+              />
+            </div>
+             {/* ▼▼▼ START: 移除提示文字 ▼▼▼ */}
+             {/* <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">提示：可使用 `user1` 或 `user2`，密碼為 `password123`。</p> */}
+             {/* ▲▲▲ END: 移除提示文字 ▲▲▲ */}
+          </div>
 
-export const logoutUser = async (username: string): Promise<void> => {
-  if (!username) return;
-  await new Promise(resolve => setTimeout(resolve, 300));
-  const userRef = doc(db, "users", username);
-  await updateDoc(userRef, {
-    loggedInDeviceId: null,
-    activeSessionId: null,
-    loggedInIp: null
-  }).catch(err => console.error("Error during logout:", err));
-};
+          <div>
+            <label htmlFor="password"className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">
+              密碼
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <LockIcon className="h-5 w-5 text-slate-400" />
+              </div>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
+                placeholder="密碼"
+                required
+              />
+            </div>
+          </div>
 
-export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
-  const userRef = doc(db, "users", username);
-  const userSnap = await getDoc(userRef);
-  
-  if (!userSnap.exists()) return false;
-  const userAccount = userSnap.data();
-  
-  return userAccount.loggedInDeviceId === deviceId && userAccount.activeSessionId === sessionId;
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors duration-200"
+          >
+            {isLoading ? (
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            ) : '登入'}
+          </button>
+        </form>
+         <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+            沒有帳號？{' '}
+            <button onClick={onSwitchToRegister} className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 focus:outline-none">
+                註冊
+            </button>
+         </div>
+         {/* ▼▼▼ START: 移除測試提示 ▼▼▼ */}
+         {/* <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 text-center text-sm text-slate-500 dark:text-slate-400">
+            若要測試，請在另一個瀏覽器分頁中用相同帳號登入。
+         </div> */}
+         {/* ▲▲▲ END: 移除測試提示 ▲▲▲ */}
+      </div>
+    </div>
+  );
 };
