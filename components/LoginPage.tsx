@@ -14,13 +14,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
   const [isLoading, setIsLoading] = useState(false);
   const auth = useAuth();
 
-  // --- START: Enhanced State Management ---
-  // This state will control whether we show the login form or the verification code form.
+  // 為不同視圖新增的狀態管理
   const [view, setView] = useState<'login' | 'verify'>('login');
   const [verificationCode, setVerificationCode] = useState('');
-  // --- END: Enhanced State Management ---
 
-  // Handles the initial username and password submission
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -31,14 +28,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
       const result = await authService.loginUser(username, password, deviceId);
       
       if (result.success && result.sessionId) {
-        // If login is successful and no verification is needed, proceed.
         auth.login(username, result.sessionId);
       } else if (result.verificationRequired) {
-        // If the auth service requires verification for this new device, switch the view.
-        setError(result.message + ' 請查看開發者主控台獲取驗證碼以進行測試。');
+        setError(result.message + ' 為了方便測試，請查看開發者主控台獲取驗證碼。');
         setView('verify');
       } else {
-        // Handle standard login errors (e.g., wrong password).
         setError(result.message);
       }
     } catch (err) {
@@ -48,17 +42,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
     }
   };
 
-  // Handles the submission of the 6-digit verification code for the new device
+  // --- START: 已修正的驗證碼提交函數 ---
   const handleVerificationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-        // Calls the new verification function from the auth service.
+        // ▼▼▼ 修正點 ▼▼▼
+        // 呼叫新的 verifyNewDevice 函數，並且不再傳遞 deviceId
         const result = await authService.verifyNewDevice(username, verificationCode);
+        // ▲▲▲ 修正點 ▲▲▲
+
         if (result.success && result.sessionId) {
-            // If verification is successful, complete the login.
             auth.login(username, result.sessionId);
         } else {
             setError(result.message);
@@ -69,8 +65,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
         setIsLoading(false);
     }
   };
+  // --- END: 已修正的驗證碼提交函數 ---
 
-  // A separate component to render the verification code input form
   const renderVerificationView = () => (
     <form onSubmit={handleVerificationSubmit} className="space-y-6">
         <div>
@@ -86,19 +82,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
               placeholder="請輸入驗證碼"
               required
               maxLength={6}
-              autoComplete="one-time-code"
             />
         </div>
         <button type="submit" disabled={isLoading} className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400">
             {isLoading ? '驗證中...' : '驗證並登入'}
         </button>
         <div className="text-center">
-          <button type="button" onClick={() => { setView('login'); setError(''); }} className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 focus:outline-none">返回登入</button>
+          <button type="button" onClick={() => { setView('login'); setError(''); }} className="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 focus:outline-none">
+            返回登入
+          </button>
         </div>
     </form>
   );
 
-  // The original login form component
   const renderLoginView = () => (
     <form onSubmit={handleLoginSubmit} className="space-y-6">
       <div>
@@ -125,20 +121,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
     <div className="w-full max-w-md">
       <div className="bg-white dark:bg-slate-800 shadow-2xl rounded-xl p-8">
         <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-white mb-2">
-          {view === 'login' ? '歡迎回來' : '驗證您的裝置'}
+          {view === 'login' ? '歡迎回來' : '驗證您的身份'}
         </h2>
         <p className="text-center text-slate-500 dark:text-slate-400 mb-8">
           {view === 'login' ? '登入以繼續' : '我們偵測到您從一個新的裝置登入'}
         </p>
         {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md" role="alert"><p>{error}</p></div>}
         
-        {/* Conditionally render the correct view based on the state */}
         {view === 'login' ? renderLoginView() : renderVerificationView()}
 
         {view === 'login' && (
              <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
                 沒有帳號？{' '}
-                <button onClick={onSwitchToRegister} className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 focus:outline-none">註冊</button>
+                <button onClick={onSwitchToRegister} className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 focus:outline-none">
+                    註冊
+                </button>
              </div>
         )}
       </div>
