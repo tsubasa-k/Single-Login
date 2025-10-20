@@ -228,6 +228,40 @@ export const createSession = async (
   return { success: true, message: '登入成功！', sessionId: newSessionId };
 }
 
+
+export const authorizeIpAndLogout = async (
+  username: string
+): Promise<{ success: boolean; message: string; }> => {
+  const userRef = doc(db, "users", username);
+  const userSnap = await getDoc(userRef);
+  
+  if (!userSnap.exists()) {
+    await signOut(auth); // 
+    return { success: false, message: '找不到使用者資料。' };
+  }
+  const userAccount = userSnap.data();
+
+  const currentUserIp = await getUserIP();
+  
+  // 
+  if (currentUserIp && (!userAccount.trustedIps || !userAccount.trustedIps.includes(currentUserIp))) {
+    try {
+      await updateDoc(userRef, {
+        trustedIps: arrayUnion(currentUserIp)
+      });
+    } catch (error: any) {
+      console.error("更新 trustedIps 失敗:", error);
+      await signOut(auth);
+      return { success: false, message: `授權 IP 時出錯: ${error.message}` };
+    }
+  }
+
+  // 
+  await signOut(auth);
+  return { success: true, message: "IP 授權成功並已登出。" };
+}
+
+
 // logoutUser 
 export const logoutUser = async (username: string): Promise<void> => {
   if (!username) {
