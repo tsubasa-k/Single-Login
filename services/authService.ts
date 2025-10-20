@@ -157,6 +157,11 @@ export const loginUser = async (
     // 
     localStorage.setItem('emailForSignIn', email);
     localStorage.setItem('usernameForSignIn', username); // 
+
+    // ▼▼▼ START: 在這裡加入 console.log ▼▼▼
+    console.log("正在發送 Email 連結，使用的 URL 是:", actionCodeSettings.url);
+    // ▲▲▲ END: 加入 console.log ▲▲▲
+
     await sendSignInLinkToEmail(auth, email, actionCodeSettings);
     
     return {
@@ -167,7 +172,7 @@ export const loginUser = async (
   } catch (error: any) { // ▼▼▼ START: 
     console.error("Error sending sign-in link:", error);
     // 
-    const specificError = error.message || '未知錯誤';
+    const specificError = (error as Error).message || '未知錯誤';
     return { 
       success: false, 
       message: `嘗試發送 Email 連結時失敗：${specificError}。請檢查 Firebase 控制台的「Authorized domains」設定。` 
