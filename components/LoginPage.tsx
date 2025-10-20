@@ -8,33 +8,45 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
-  // ▼▼▼ START: 修改此處 ▼▼▼
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  // ▲▲▲ END: 修改此處 ▲▲▲
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // ▼▼▼ START: 新增 state ▼▼▼
+  const [needsVerification, setNeedsVerification] = useState(false);
+  // ▲▲▲ END: 新增 state ▲▲▲
   const auth = useAuth();
 
+  // ▼▼▼ START: 修改 handleSubmit ▼▼▼
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // 檢查當前是否為「確認登入」的第二次點擊
+    const isForcedAttempt = needsVerification;
+
     setError('');
     setIsLoading(true);
 
     try {
       const deviceId = authService.getOrCreateDeviceId();
-      const result = await authService.loginUser(username, password, deviceId);
+      // 傳入 isForcedAttempt 參數
+      const result = await authService.loginUser(username, password, deviceId, isForcedAttempt);
+      
       if (result.success && result.sessionId) {
         auth.login(username, result.sessionId);
       } else {
         setError(result.message);
+        // 如果 API 回傳需要驗證，則更新 state
+        setNeedsVerification(result.needsVerification || false);
       }
     } catch (err) {
       setError('發生意外錯誤，請再試一次。');
+      setNeedsVerification(false); // 發生未知錯誤時重設
     } finally {
       setIsLoading(false);
     }
   };
+  // ▲▲▲ END: 修改 handleSubmit ▲▲▲
 
   return (
     <div className="w-full max-w-md">
@@ -47,7 +59,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
         </p>
 
         {error && (
-          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md" role="alert">
+          <div 
+             // 根據是否需要驗證來改變錯誤提示的樣式
+            className={`${
+              needsVerification ? 'bg-yellow-100 border-yellow-500 text-yellow-700' : 'bg-red-100 border-red-500 text-red-700'
+            } border-l-4 p-4 mb-6 rounded-md`}
+            role="alert"
+          >
             <p>{error}</p>
           </div>
         )}
@@ -65,15 +83,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 id="username"
                 type="text"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  setNeedsVerification(false); // 使用者修改欄位時重設驗證狀態
+                  setError('');
+                }}
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
                 placeholder="您的使用者名稱"
                 required
               />
             </div>
-             {/* ▼▼▼ START: 移除提示文字 ▼▼▼ */}
-             {/* <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">提示：可使用 `user1` 或 `user2`，密碼為 `password123`。</p> */}
-             {/* ▲▲▲ END: 移除提示文字 ▲▲▲ */}
           </div>
 
           <div>
@@ -88,7 +107,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 id="password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.g.target.value);
+                  setNeedsVerification(false); // 使用者修改欄位時重設驗證狀態
+                  setError('');
+                }}
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
                 placeholder="密碼"
                 required
@@ -106,7 +129,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-            ) : '登入'}
+            ) : (
+              // ▼▼▼ START: 根據 state 改變按鈕文字 ▼▼▼
+              needsVerification ? '我認得此活動，請登入' : '登入'
+              // ▲▲▲ END: 改變按鈕文字 ▲▲▲
+            )}
           </button>
         </form>
          <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -115,11 +142,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 註冊
             </button>
          </div>
-         {/* ▼▼▼ START: 移除測試提示 ▼▼▼ */}
-         {/* <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 text-center text-sm text-slate-500 dark:text-slate-400">
-            若要測試，請在另一個瀏覽器分頁中用相同帳號登入。
-         </div> */}
-         {/* ▲▲▲ END: 移除測試提示 ▲▲▲ */}
       </div>
     </div>
   );
