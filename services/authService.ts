@@ -164,9 +164,15 @@ export const loginUser = async (
       message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。我們已發送一封【安全登入連結】到您的 Email 信箱。請點擊該連結以授權此裝置並登入。`,
       needsEmailLink: true
     };
-  } catch (error) {
+  } catch (error: any) { // ▼▼▼ START: 
     console.error("Error sending sign-in link:", error);
-    return { success: false, message: "嘗試發送 Email 連結時失敗，請稍後再試。" };
+    // 
+    const specificError = error.message || '未知錯誤';
+    return { 
+      success: false, 
+      message: `嘗試發送 Email 連結時失敗：${specificError}。請檢查 Firebase 控制台的「Authorized domains」設定。` 
+    };
+    // ▲▲▲ END: 
   }
 };
 
