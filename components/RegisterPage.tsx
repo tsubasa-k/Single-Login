@@ -1,7 +1,8 @@
-
 import React, { useState } from 'react';
 import * as authService from '../services/authService';
-import { UserIcon, LockIcon } from './icons';
+// ▼▼▼ START: 匯入 EmailIcon ▼▼▼
+import { UserIcon, LockIcon, EmailIcon } from './icons';
+// ▲▲▲ END: 匯入 EmailIcon ▲▲▲
 
 interface RegisterPageProps {
   onSwitchToLogin: () => void;
@@ -9,13 +10,22 @@ interface RegisterPageProps {
 
 export const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) => {
   const [username, setUsername] = useState('');
+  // ▼▼▼ START: 新增 email state ▼▼▼
+  const [email, setEmail] = useState('');
+  // ▲▲▲ END: 新增 email state ▲▲▲
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // ▼▼▼ START: 增加 Email 驗證 (簡易) ▼▼▼
+  const validateEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
+  // ▲▲▲ END: 增加 Email 驗證 (簡易) ▲▲▲
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -28,14 +38,23 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) =
         setError('密碼長度至少需要 6 個字元。');
         return;
     }
+    // ▼▼▼ START: 檢查 Email 格式 ▼▼▼
+    if (!validateEmail(email)) {
+      setError('請輸入有效的 Email 地址。');
+      return;
+    }
+    // ▲▲▲ END: 檢查 Email 格式 ▼▲▲
 
     setIsLoading(true);
 
     try {
-      const result = await authService.registerUser(username, password);
+      // ▼▼▼ START: 傳入 email ▼▼▼
+      const result = await authService.registerUser(username, email, password);
+      // ▲▲▲ END: 傳入 email ▼▲▲
       if (result.success) {
         setSuccess(result.message);
         setUsername('');
+        setEmail(''); // 清空 email
         setPassword('');
         setConfirmPassword('');
       } else {
@@ -91,6 +110,29 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) =
               />
             </div>
           </div>
+
+          {/* ▼▼▼ START: 新增 Email 輸入欄位 ▼▼▼ */}
+          <div>
+            <label htmlFor="email-reg" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">
+              Email
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <EmailIcon className="h-5 w-5 text-slate-400" />
+              </div>
+              <input
+                id="email-reg"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
+                placeholder="您的 Email 地址"
+                required
+                autoComplete="email"
+              />
+            </div>
+          </div>
+          {/* ▲▲▲ END: 新增 Email 輸入欄位 ▲▲▲ */}
 
           <div>
             <label htmlFor="password-reg" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">
