@@ -1,6 +1,6 @@
 import { db } from './firebaseConfig';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { isIpSuspicious } from './ipWhitelist'; 
+import { isIpSuspicious } from './ipWhitelist'; // ▼▼▼ START: 匯入新的檢查函式 ▼▼▼
 
 const DEVICE_ID_KEY = 'app_device_id';
 
@@ -34,10 +34,11 @@ const getUserIP = async (): Promise<string | null> => {
   return null;
 };
 
+// ▲▲▲ END: 移除舊的 isIpSuspicious 函式 ▲▲▲
 
-// ▼▼▼ START: 修改 registerUser 函式 ▼▼▼
-export const registerUser = async (username: string, email: string, password: string): Promise<{ success: boolean; message: string }> => {
-// ▲▲▲ END: 修改 registerUser 函式 ▲▲▲
+
+// registerUser 函數維持不變 (儲存 registrationIp)
+export const registerUser = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
   
   if (!username.trim()) {
@@ -52,24 +53,20 @@ export const registerUser = async (username: string, email: string, password: st
 
   const registrationIp = await getUserIP();
   
-  // ▼▼▼ START: 儲存 email 欄位 ▼▼▼
   await setDoc(userRef, {
-      password, // 實務上密碼應該要加密
-      email: email, // 儲存 Email
+      password, 
       loggedInDeviceId: null,
       activeSessionId: null,
       loggedInIp: null,
       registrationIp: registrationIp, // 儲存註冊時的 IP
       createdAt: serverTimestamp()
   });
-  // ▲▲▲ END: 儲存 email 欄位 ▼▲▲
   
   return { success: true, message: '註冊成功！您現在可以登入。' };
 };
 
 
-// loginUser 函數維持不變
-// (它會繼續使用您現有的「點兩次確認」邏輯)
+// loginUser 函數維持不變，僅修改提示訊息
 export const loginUser = async (
   username: string, 
   password: string, 
@@ -97,16 +94,18 @@ export const loginUser = async (
   }
 
   const currentUserIp = await getUserIP();
-  const isSuspicious = isIpSuspicious(currentUserIp); 
+  const isSuspicious = isIpSuspicious(currentUserIp); // 使用新的檢查函式
 
   if (isSuspicious && !forceLogin) {
     const regIpInfo = userAccount.registrationIp ? `(您註冊時的 IP 來源: ${userAccount.registrationIp})` : '';
     
+    // ▼▼▼ START: 更新提示訊息 ▼▼▼
     return {
       success: false,
       message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。此 IP 未被辨識為臺灣學術網路 (TANet) 的一部分。${regIpInfo} 如果您認得此活動，請再次點擊登入以確認。`,
       needsVerification: true
     };
+    // ▲▲▲ END: 更新提示訊息 ▲▲▲
   }
   
   if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
@@ -146,7 +145,7 @@ export const logoutUser = async (username: string): Promise<void> => {
   }).catch(err => console.error("Error during logout:", err));
 };
 
-// isSessionStillValid 函數維持不變
+// isSessionStillValid 函數維持不變 (它會自動使用新的 isIpSuspicious)
 export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
   const userRef = doc(db, "users", username);
   const userSnap = await getDoc(userRef);
@@ -161,12 +160,14 @@ export const isSessionStillValid = async (username: string, deviceId: string, se
 
   const currentUserIp = await getUserIP();
   
+  // ▼▼▼ START: 這裡會自動使用新的 IP 白名單檢查 ▼▼▼
   const isSuspicious = isIpSuspicious(currentUserIp);
   if (isSuspicious) {
     console.warn("Session IP is from a suspicious range (non-TANet). Logging out.");
     await logoutUser(username);
     return false;
   }
+  // ▲▲▲ END: IP 白名單檢查 ▲▲▲
 
   if (userAccount.loggedInIp && currentUserIp && userAccount.loggedInIp !== currentUserIp) {
       console.warn("Session IP mismatch. Logging out.");
