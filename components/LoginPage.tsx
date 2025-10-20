@@ -12,36 +12,51 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [needsVerification, setNeedsVerification] = useState(false);
+  // ▼▼▼ START: 
+  const [isWarning, setIsWarning] = useState(false);
+  // ▲▲▲ END: 
+
   const auth = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 
-    const isForcedAttempt = needsVerification;
-
     setError('');
+    setIsWarning(false); // 
     setIsLoading(true);
-    // 
 
     try {
-      const deviceId = authService.getOrCreateDeviceId();
-      // 
-      const result = await authService.loginUser(username, password, deviceId, isForcedAttempt);
+      // ▼▼▼ START: 
+      const result = await authService.loginUser(username, password);
+      // ▲▲▲ END: 
       
-      if (result.success && result.sessionId) {
-        auth.login(username, result.sessionId);
-      } else {
-        setError(result.message);
-        // ▼▼▼ START: 更新此邏輯 ▼▼▼
+      if (result.success) {
         // 
-        setNeedsVerification(result.needsVerification || result.emailNotVerified || false);
-        // ▲▲▲ END: 更新此邏輯 ▲▲▲
+        // 
+        const deviceId = authService.getOrCreateDeviceId();
+        const sessionResult = await authService.createSession(username, deviceId);
+
+        if (sessionResult.success && sessionResult.sessionId) {
+          auth.login(username, sessionResult.sessionId);
+        } else {
+          // 
+          setError(sessionResult.message);
+          setIsWarning(false); // 
+        }
+      } else {
+        // 
+        setError(result.message);
+        // ▼▼▼ START: 
+        if (result.needsEmailLink || result.emailNotVerified) {
+          setIsWarning(true);
+        } else {
+          setIsWarning(false);
+        }
+        // ▲▲▲ END: 
       }
     } catch (err) {
       setError('發生意外錯誤，請再試一次。');
-      setNeedsVerification(false); // 
+      setIsWarning(false);
     } finally {
       setIsLoading(false);
     }
@@ -59,9 +74,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
 
         {error && (
           <div 
-             // 
+             // ▼▼▼ MODIFIED: 
             className={`${
-              needsVerification ? 'bg-yellow-100 border-yellow-500 text-yellow-700' : 'bg-red-100 border-red-500 text-red-700'
+              isWarning ? 'bg-yellow-100 border-yellow-500 text-yellow-700' : 'bg-red-100 border-red-500 text-red-700'
             } border-l-4 p-4 mb-6 rounded-md`}
             role="alert"
           >
@@ -84,7 +99,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 value={username}
                 onChange={(e) => {
                   setUsername(e.target.value);
-                  setNeedsVerification(false); // 
+                  setIsWarning(false); // 
                   setError('');
                 }}
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
@@ -108,7 +123,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value); 
-                  setNeedsVerification(false); // 
+                  setIsWarning(false); // 
                   setError('');
                 }}
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
@@ -129,7 +144,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             ) : (
-              needsVerification ? '我認得此活動，請登入' : '登入'
+              '登入' // 
             )}
           </button>
         </form>
