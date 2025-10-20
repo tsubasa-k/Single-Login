@@ -18,27 +18,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 檢查當前是否為「確認登入」的第二次點擊
+    // 
     const isForcedAttempt = needsVerification;
 
     setError('');
     setIsLoading(true);
+    // 
 
     try {
       const deviceId = authService.getOrCreateDeviceId();
-      // 傳入 isForcedAttempt 參數
+      // 
       const result = await authService.loginUser(username, password, deviceId, isForcedAttempt);
       
       if (result.success && result.sessionId) {
         auth.login(username, result.sessionId);
       } else {
         setError(result.message);
-        // 如果 API 回傳需要驗證，則更新 state
-        setNeedsVerification(result.needsVerification || false);
+        // ▼▼▼ START: 更新此邏輯 ▼▼▼
+        // 
+        setNeedsVerification(result.needsVerification || result.emailNotVerified || false);
+        // ▲▲▲ END: 更新此邏輯 ▲▲▲
       }
     } catch (err) {
       setError('發生意外錯誤，請再試一次。');
-      setNeedsVerification(false); // 發生未知錯誤時重設
+      setNeedsVerification(false); // 
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +59,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
 
         {error && (
           <div 
-             // 根據是否需要驗證來改變錯誤提示的樣式
+             // 
             className={`${
               needsVerification ? 'bg-yellow-100 border-yellow-500 text-yellow-700' : 'bg-red-100 border-red-500 text-red-700'
             } border-l-4 p-4 mb-6 rounded-md`}
@@ -81,7 +84,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 value={username}
                 onChange={(e) => {
                   setUsername(e.target.value);
-                  setNeedsVerification(false); // 使用者修改欄位時重設驗證狀態
+                  setNeedsVerification(false); // 
                   setError('');
                 }}
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
@@ -103,13 +106,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
                 id="password"
                 type="password"
                 value={password}
-                // ▼▼▼ START: 修正此處 ▼▼▼
                 onChange={(e) => {
-                  setPassword(e.target.value); // 這裡之前錯誤地寫成了 e.g.target.value
-                  setNeedsVerification(false); // 使用者修改欄位時重設驗證狀態
+                  setPassword(e.target.value); 
+                  setNeedsVerification(false); // 
                   setError('');
                 }}
-                // ▲▲▲ END: 修正此處 ▲▲▲
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700"
                 placeholder="密碼"
                 required
