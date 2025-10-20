@@ -1,15 +1,23 @@
-import { db, auth } from './firebaseConfig'; // 
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db, auth } from './firebaseConfig';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore"; // 
 import { isIpSuspicious } from './ipWhitelist'; 
-// 
 import { 
   createUserWithEmailAndPassword, 
   sendEmailVerification,
   signInWithEmailAndPassword,
-  signOut
+  signOut,
+  sendSignInLinkToEmail // 
 } from "firebase/auth";
 
 const DEVICE_ID_KEY = 'app_device_id';
+
+// 
+const actionCodeSettings = {
+  // 
+  // 
+  url: window.location.origin, // 
+  handleCodeInApp: true, // 
+};
 
 // getOrCreateDeviceId 
 export const getOrCreateDeviceId = (): string => {
@@ -42,15 +50,12 @@ const getUserIP = async (): Promise<string | null> => {
 };
 
 
-// registerUser 
+// registerUser (
 export const registerUser = async (username: string, email: string, password: string): Promise<{ success: boolean; message: string }> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
   
   if (!username.trim()) {
     return { success: false, message: '使用者名稱不能為空。' };
   }
-  
-  // 1. 
   const userRef = doc(db, "users", username);
   const userSnap = await getDoc(userRef);
 
@@ -58,38 +63,35 @@ export const registerUser = async (username: string, email: string, password: st
     return { success: false, message: '此使用者名稱已被註冊。' };
   }
 
-  // 2. 
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    // 3. 
     await sendEmailVerification(user);
 
-    // 4. 
     const registrationIp = await getUserIP();
+    
+    // 
     await setDoc(userRef, {
-        email: email, // 
-        uid: user.uid, // 
+        email: email,
+        uid: user.uid,
         loggedInDeviceId: null,
         activeSessionId: null,
         loggedInIp: null,
         registrationIp: registrationIp,
+        trustedIps: registrationIp ? [registrationIp] : [], // 
         createdAt: serverTimestamp()
-        // 
     });
     
     return { success: true, message: '註冊成功！請檢查您的 Email 信箱以完成驗證。' };
 
   } catch (error: any) {
-    // 
     if (error.code === 'auth/email-already-in-use') {
       return { success: false, message: '此 Email 已被註冊。' };
     }
     if (error.code === 'auth/weak-password') {
       return { success: false, message: '密碼強度不足，請至少設定 6 個字元。' };
     }
-    console.error("Firebase Auth Error:", error);
     return { success: false, message: '註冊時發生錯誤。' };
   }
 };
@@ -98,19 +100,15 @@ export const registerUser = async (username: string, email: string, password: st
 // loginUser (
 export const loginUser = async (
   username: string, 
-  password: string, 
-  deviceId: string,
-  forceLogin: boolean = false
+  password: string
 ): Promise<{ 
   success: boolean; 
   message: string; 
-  sessionId?: string; 
-  needsVerification?: boolean; 
+  needsEmailLink?: boolean; // 
   emailNotVerified?: boolean; 
 }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
 
-  // 1. 
   const userRef = doc(db, "users", username);
   const userSnap = await getDoc(userRef);
   
@@ -119,55 +117,76 @@ export const loginUser = async (
   }
   
   const userAccount = userSnap.data();
-  const email = userAccount.email; // 
-
+  const email = userAccount.email;
   if (!email) {
       return { success: false, message: '帳號資料不完整，缺少 Email 無法登入。' };
   }
 
-  // 2. 
+  // 1. 
   let user;
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     user = userCredential.user;
   } catch (error: any) {
-    // 
     return { success: false, message: '無效的使用者名稱或密碼。' };
   }
 
-  // 3. 
+  // 2. 
   if (!user.emailVerified) {
-    // ▼▼▼ START: 新增自動重寄驗證信 ▼▼▼
     await sendEmailVerification(user); 
     return { 
       success: false, 
       message: '您的 Email 尚未驗證。我們已重新發送一封驗證信至您的信箱，請檢查後再試。',
       emailNotVerified: true 
     };
-    // ▲▲▲ END: 新增自動重寄驗證信 ▲▲▲
   }
   
-  // 4. 
+  // 3. 
   const currentUserIp = await getUserIP();
-  const isSuspicious = isIpSuspicious(currentUserIp); 
+  const isTANet = !isIpSuspicious(currentUserIp);
+  const isTrusted = userAccount.trustedIps && userAccount.trustedIps.includes(currentUserIp);
 
-  if (isSuspicious && !forceLogin) {
-    const regIpInfo = userAccount.registrationIp ? `(您註冊時的 IP 來源: ${userAccount.registrationIp})` : '';
+  // 
+  if (isTANet || isTrusted) {
+    // 
+    return { success: true, message: "IP 驗證成功，正在建立安全連線..." };
+  }
+
+  // 4. 
+  try {
+    // 
+    localStorage.setItem('emailForSignIn', email);
+    localStorage.setItem('usernameForSignIn', username); // 
+    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
     
-    // ▼▼▼ START: 
-    await sendEmailVerification(user);
-    // ▲▲▲ END: 
-
     return {
       success: false,
-      // ▼▼▼ START: 
-      message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。${regIpInfo} 為安全起見，我們已發送一封確認信至您的 Email。如果您認得此活動，請再點擊一次登入以確認。`,
-      // ▲▲▲ END: 
-      needsVerification: true
+      message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。我們已發送一封【安全登入連結】到您的 Email 信箱。請點擊該連結以授權此裝置並登入。`,
+      needsEmailLink: true
     };
+  } catch (error) {
+    console.error("Error sending sign-in link:", error);
+    return { success: false, message: "嘗試發送 Email 連結時失敗，請稍後再試。" };
   }
+};
+
+// 
+export const createSession = async (
+  username: string,
+  deviceId: string
+): Promise<{ 
+  success: boolean; 
+  message: string; 
+  sessionId?: string; 
+}> => {
+  const userRef = doc(db, "users", username);
+  const userSnap = await getDoc(userRef);
+  if (!userSnap.exists()) {
+    return { success: false, message: '找不到使用者資料。' };
+  }
+  const userAccount = userSnap.data();
   
-  // 5. 
+  // 
   if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
       if (userAccount.loggedInDeviceId !== deviceId) {
           const ipInfo = userAccount.loggedInIp ? ` (IP: ${userAccount.loggedInIp})` : '';
@@ -177,25 +196,32 @@ export const loginUser = async (
       }
   }
 
-  // 6. 
+  const currentUserIp = await getUserIP();
   const newSessionId = self.crypto.randomUUID();
   
-  await updateDoc(userRef, {
+  // 
+  const updateData: any = {
       loggedInDeviceId: deviceId,
       activeSessionId: newSessionId,
-      loggedInIp: currentUserIp, 
+      loggedInIp: currentUserIp, // 
       lastLogin: serverTimestamp()
-  });
+  };
+
+  // 
+  if (currentUserIp && (!userAccount.trustedIps || !userAccount.trustedIps.includes(currentUserIp))) {
+      updateData.trustedIps = arrayUnion(currentUserIp);
+  }
+
+  await updateDoc(userRef, updateData);
 
   return { success: true, message: '登入成功！', sessionId: newSessionId };
-};
+}
 
 // logoutUser 
 export const logoutUser = async (username: string): Promise<void> => {
   if (!username) {
     console.warn("Logout attempt without username.");
   } else {
-    // 
     const userRef = doc(db, "users", username);
     await updateDoc(userRef, {
       loggedInDeviceId: null,
@@ -204,59 +230,42 @@ export const logoutUser = async (username: string): Promise<void> => {
     }).catch(err => console.error("Error during Firestore logout:", err));
   }
   
-  // 
   await signOut(auth).catch(err => console.error("Error during Auth signout:", err));
 };
 
-// isSessionStillValid 
+// isSessionStillValid (
 export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
   
-  // 1. 
-  if (!auth.currentUser) {
-    console.warn("Auth session missing, forcing logout.");
-    return false;
-  }
-  
-  // 2. 
-  if (!auth.currentUser.emailVerified) {
-    console.warn("Auth user email not verified, forcing logout.");
-    await logoutUser(username); // 
+  if (!auth.currentUser || !auth.currentUser.emailVerified) {
+    await logoutUser(username);
     return false;
   }
 
-  // 3. 
   const userRef = doc(db, "users", username);
   const userSnap = await getDoc(userRef);
-  
   if (!userSnap.exists()) return false;
 
   const userAccount = userSnap.data();
-
-  // 4. 
+  
   if (userAccount.email !== auth.currentUser.email) {
-    console.warn("Auth user email mismatch with Firestore email, forcing logout.");
     await logoutUser(username);
     return false;
   }
   
-  // 5. 
   if (userAccount.loggedInDeviceId !== deviceId || userAccount.activeSessionId !== sessionId) {
       return false;
   }
 
-  // 6. 
   const currentUserIp = await getUserIP();
-  const isSuspicious = isIpSuspicious(currentUserIp);
-  if (isSuspicious) {
-    console.warn("Session IP is from a suspicious range (non-TANet). Logging out.");
+  
+  // 
+  const isTANet = !isIpSuspicious(currentUserIp);
+  const isTrusted = userAccount.trustedIps && userAccount.trustedIps.includes(currentUserIp);
+
+  if (!isTANet && !isTrusted) {
+    console.warn("Session IP is suspicious and not in trusted list. Logging out.");
     await logoutUser(username);
     return false;
-  }
-
-  if (userAccount.loggedInIp && currentUserIp && userAccount.loggedInIp !== currentUserIp) {
-      console.warn("Session IP mismatch. Logging out.");
-      await logoutUser(username);
-      return false;
   }
 
   return true;
