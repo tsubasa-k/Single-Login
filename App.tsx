@@ -6,11 +6,20 @@ import { CurrentUser, AuthContextType } from './types';
 import * as authService from './services/authService';
 import { SunIcon, MoonIcon } from './components/icons';
 
+// ▼▼▼ START: 匯入 Auth 相關函式 ▼▼▼
+import { auth } from './services/firebaseConfig';
+import { isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
+// ▲▲▲ END: 匯入 Auth 相關函式 ▼▲▲
+
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // ▼▼▼ START: 新增一個狀態來處理連結登入 ▼▼▼
+  const [isProcessingLink, setIsProcessingLink] = useState(true);
+  // ▲▲▲ END: 新增一個狀態來處理連結登入 ▼▼▼
 
   const logout = useCallback(async () => {
     if (currentUser) {
@@ -22,33 +31,89 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     }
   }, [currentUser]);
 
-  // ▼▼▼ START: 新增自動登出邏輯 ▼▼▼
+  // (beforeunload effect 維持不變)
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      // 大部分的現代瀏覽器為了安全，會忽略 event.returnValue 的自訂訊息
-      // 但某些舊版瀏覽器可能需要
       event.preventDefault(); 
       if (currentUser) {
-        // 使用 navigator.sendBeacon 來確保請求在頁面關閉前發送
-        // 由於 logoutUser 是非同步的，且 sendBeacon 不處理非同步，
-        // 這裡我們只處理前端狀態，後端的 session 會因為定期檢查而失效。
-        // 對於您的 Firebase 方案，登出是必要的。
-        // 但 sendBeacon 只能發送 POST 請求，logoutUser 需要更複雜的邏輯
-        // 因此這裡我們直接觸發 logout，並依賴瀏覽器盡力完成
         logout();
       }
     };
-
-    // 頁面關閉或刷新時觸發
     window.addEventListener('beforeunload', handleBeforeUnload);
-
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [currentUser, logout]);
-  // ▲▲▲ END: 新增自動登出邏輯 ▲▲▲
 
+
+  const login = useCallback((username: string, sessionId: string) => {
+    const user: CurrentUser = { username, sessionId };
+    setCurrentUser(user);
+    sessionStorage.setItem('currentUser', JSON.stringify(user));
+  }, []);
+
+  // ▼▼▼ START: 新增 Effect 來處理 Email 連結登入 ▼▼▼
   useEffect(() => {
+    const handleEmailLinkLogin = async () => {
+      if (isSignInWithEmailLink(auth, window.location.href)) {
+        setIsLoading(true); // 
+        let email = localStorage.getItem('emailForSignIn');
+        let username = localStorage.getItem('usernameForSignIn');
+        
+        if (!email || !username) {
+          console.error("Email 連結登入失敗：找不到快取的 Email 或使用者名稱。");
+          alert("Email 連結登入失敗，請重新登入。");
+          setIsProcessingLink(false);
+          setIsLoading(false);
+          window.history.replaceState(null, '', window.location.origin);
+          return;
+        }
+
+        try {
+          // 1. 
+          await signInWithEmailLink(auth, email, window.location.href);
+          
+          // 2. 
+          const deviceId = authService.getOrCreateDeviceId();
+          const sessionResult = await authService.createSession(username, deviceId);
+
+          if (sessionResult.success && sessionResult.sessionId) {
+            login(username, sessionResult.sessionId);
+          } else {
+            console.error(sessionResult.message);
+            alert(`建立工作階段失敗: ${sessionResult.message}`);
+            await authService.logoutUser(username);
+          }
+          
+        } catch (error) {
+          console.error("Email 連結登入時發生錯誤:", error);
+          alert(`連結登入失敗: ${error}`);
+        } finally {
+          // 
+          localStorage.removeItem('emailForSignIn');
+          localStorage.removeItem('usernameForSignIn');
+          window.history.replaceState(null, '', window.location.origin);
+          setIsProcessingLink(false);
+          // 
+        }
+      } else {
+        setIsProcessingLink(false);
+      }
+    };
+
+    handleEmailLinkLogin();
+  }, [login]);
+  // ▲▲▲ END: 新增 Effect 來處理 Email 連結登入 ▲▲▲
+
+
+  // (session validation effect / 
+  useEffect(() => {
+    // 
+    if (isProcessingLink) {
+      setIsLoading(true);
+      return; // 
+    }
+    
     const validateSession = async () => {
       try {
         const storedUserStr = sessionStorage.getItem('currentUser');
@@ -72,19 +137,12 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
     validateSession();
     
-    // 定期檢查會話有效性
     const intervalId = setInterval(validateSession, 60000); 
 
     return () => {
       clearInterval(intervalId);
     };
-  }, []);
-
-  const login = useCallback((username: string, sessionId: string) => {
-    const user: CurrentUser = { username, sessionId };
-    setCurrentUser(user);
-    sessionStorage.setItem('currentUser', JSON.stringify(user));
-  }, []);
+  }, [isProcessingLink]); // 
 
   const value = { currentUser, login, logout, isLoading };
 
@@ -93,6 +151,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 
 const ThemeToggle: React.FC = () => {
+  // (ThemeToggle 維持不變)
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
       return localStorage.getItem('theme') === 'dark';
@@ -133,7 +192,8 @@ const AppContent: React.FC = () => {
   const { currentUser, isLoading } = React.useContext(AuthContext)!;
   const [view, setView] = useState<'login' | 'register'>('login');
 
-  if (isLoading && !currentUser) {
+  // 
+  if (isLoading) { 
     return (
       <div className="flex items-center justify-center h-screen">
           <svg className="animate-spin h-10 w-10 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
