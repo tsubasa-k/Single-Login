@@ -42,7 +42,7 @@ const getUserIP = async (): Promise<string | null> => {
 };
 
 
-// 
+// registerUser 
 export const registerUser = async (username: string, email: string, password: string): Promise<{ success: boolean; message: string }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
   
@@ -95,7 +95,7 @@ export const registerUser = async (username: string, email: string, password: st
 };
 
 
-// 
+// loginUser (
 export const loginUser = async (
   username: string, 
   password: string, 
@@ -106,7 +106,7 @@ export const loginUser = async (
   message: string; 
   sessionId?: string; 
   needsVerification?: boolean; 
-  emailNotVerified?: boolean; // 
+  emailNotVerified?: boolean; 
 }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -137,11 +137,14 @@ export const loginUser = async (
 
   // 3. 
   if (!user.emailVerified) {
+    // ▼▼▼ START: 新增自動重寄驗證信 ▼▼▼
+    await sendEmailVerification(user); 
     return { 
       success: false, 
-      message: '您的 Email 尚未驗證。請檢查您的信箱並點擊驗證連結。',
-      emailNotVerified: true // 
+      message: '您的 Email 尚未驗證。我們已重新發送一封驗證信至您的信箱，請檢查後再試。',
+      emailNotVerified: true 
     };
+    // ▲▲▲ END: 新增自動重寄驗證信 ▲▲▲
   }
   
   // 4. 
@@ -151,9 +154,15 @@ export const loginUser = async (
   if (isSuspicious && !forceLogin) {
     const regIpInfo = userAccount.registrationIp ? `(您註冊時的 IP 來源: ${userAccount.registrationIp})` : '';
     
+    // ▼▼▼ START: 
+    await sendEmailVerification(user);
+    // ▲▲▲ END: 
+
     return {
       success: false,
-      message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。此 IP 未被辨識為臺灣學術網路 (TANet) 的一部分。${regIpInfo} 如果您認得此活動，請再次點擊登入以確認。`,
+      // ▼▼▼ START: 
+      message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。${regIpInfo} 為安全起見，我們已發送一封確認信至您的 Email。如果您認得此活動，請再點擊一次登入以確認。`,
+      // ▲▲▲ END: 
       needsVerification: true
     };
   }
@@ -181,7 +190,7 @@ export const loginUser = async (
   return { success: true, message: '登入成功！', sessionId: newSessionId };
 };
 
-// 
+// logoutUser 
 export const logoutUser = async (username: string): Promise<void> => {
   if (!username) {
     console.warn("Logout attempt without username.");
@@ -199,7 +208,7 @@ export const logoutUser = async (username: string): Promise<void> => {
   await signOut(auth).catch(err => console.error("Error during Auth signout:", err));
 };
 
-// 
+// isSessionStillValid 
 export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
   
   // 1. 
