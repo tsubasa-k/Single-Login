@@ -1,5 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+// ▼▼▼ START: 匯入 getAuth ▼▼▼
+import { getAuth } from "firebase/auth";
+// ▲▲▲ END: 匯入 getAuth ▲▲▲
 
 // 從 Vite 的環境變數中讀取設定
 const firebaseConfig = {
@@ -16,3 +19,7 @@ const app = initializeApp(firebaseConfig);
 
 // 取得 Firestore 實例
 export const db = getFirestore(app);
+
+// ▼▼▼ START: 匯出 Auth 實例 ▼▼▼
+export const auth = getAuth(app);
+// ▲▲▲ END: 匯出 Auth 實例 ▼▲▲
