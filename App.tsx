@@ -17,9 +17,10 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  // ▼▼▼ START: 新增一個狀態來處理連結登入 ▼▼▼
+  // ▼▼▼ START: 
   const [isProcessingLink, setIsProcessingLink] = useState(true);
-  // ▲▲▲ END: 新增一個狀態來處理連結登入 ▼▼▼
+  const [justLoggedInViaLink, setJustLoggedInViaLink] = useState(false); // 
+  // ▲▲▲ END: 
 
   const logout = useCallback(async () => {
     if (currentUser) {
@@ -31,7 +32,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     }
   }, [currentUser]);
 
-  // (beforeunload effect 維持不變)
+  // (beforeunload effect 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault(); 
@@ -52,7 +53,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     sessionStorage.setItem('currentUser', JSON.stringify(user));
   }, []);
 
-  // ▼▼▼ START: 新增 Effect 來處理 Email 連結登入 ▼▼▼
+  // ▼▼▼ START: 
   useEffect(() => {
     const handleEmailLinkLogin = async () => {
       if (isSignInWithEmailLink(auth, window.location.href)) {
@@ -79,6 +80,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
           if (sessionResult.success && sessionResult.sessionId) {
             login(username, sessionResult.sessionId);
+            setJustLoggedInViaLink(true); // 
           } else {
             console.error(sessionResult.message);
             alert(`建立工作階段失敗: ${sessionResult.message}`);
@@ -103,8 +105,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
     handleEmailLinkLogin();
   }, [login]);
-  // ▲▲▲ END: 新增 Effect 來處理 Email 連結登入 ▲▲▲
-
+  // ▲▲▲ END: 
 
   // (session validation effect / 
   useEffect(() => {
@@ -113,6 +114,13 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       setIsLoading(true);
       return; // 
     }
+
+    // ▼▼▼ START: 
+    if (justLoggedInViaLink) {
+      setIsLoading(false); // 
+      return; // 
+    }
+    // ▲▲▲ END: 
     
     const validateSession = async () => {
       try {
@@ -142,7 +150,8 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     return () => {
       clearInterval(intervalId);
     };
-  }, [isProcessingLink]); // 
+  }, [isProcessingLink, justLoggedInViaLink]); // 
+  // ▲▲▲ 
 
   const value = { currentUser, login, logout, isLoading };
 
@@ -151,7 +160,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 
 const ThemeToggle: React.FC = () => {
-  // (ThemeToggle 維持不變)
+  // (ThemeToggle 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
       return localStorage.getItem('theme') === 'dark';
