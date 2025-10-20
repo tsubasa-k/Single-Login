@@ -19,7 +19,6 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   
   // ▼▼▼ START: 
   const [isProcessingLink, setIsProcessingLink] = useState(true);
-  const [justLoggedInViaLink, setJustLoggedInViaLink] = useState(false); // 
   // ▲▲▲ END: 
 
   const logout = useCallback(async () => {
@@ -75,28 +74,27 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           await signInWithEmailLink(auth, email, window.location.href);
           
           // 2. 
-          const deviceId = authService.getOrCreateDeviceId();
-          const sessionResult = await authService.createSession(username, deviceId);
+          const authResult = await authService.authorizeIpAndLogout(username);
 
-          if (sessionResult.success && sessionResult.sessionId) {
-            login(username, sessionResult.sessionId);
-            setJustLoggedInViaLink(true); // 
+          if (authResult.success) {
+            // 
+            alert("您的裝置與 IP 已授權成功。請重新登入。");
           } else {
-            console.error(sessionResult.message);
-            alert(`建立工作階段失敗: ${sessionResult.message}`);
-            await authService.logoutUser(username);
+            // 
+            console.error(authResult.message);
+            alert(`IP 授權失敗: ${authResult.message}`);
           }
           
         } catch (error) {
-          console.error("Email 連結登入時發生錯誤:", error);
-          alert(`連結登入失敗: ${error}`);
+          console.error("Email 連結處理時發生錯誤:", error);
+          alert(`連結處理失敗: ${error}`);
         } finally {
           // 
           localStorage.removeItem('emailForSignIn');
           localStorage.removeItem('usernameForSignIn');
           window.history.replaceState(null, '', window.location.origin);
           setIsProcessingLink(false);
-          // 
+          setIsLoading(false); // 
         }
       } else {
         setIsProcessingLink(false);
@@ -104,7 +102,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     };
 
     handleEmailLinkLogin();
-  }, [login]);
+  }, []); // 
   // ▲▲▲ END: 
 
   // (session validation effect / 
@@ -114,13 +112,6 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
       setIsLoading(true);
       return; // 
     }
-
-    // ▼▼▼ START: 
-    if (justLoggedInViaLink) {
-      setIsLoading(false); // 
-      return; // 
-    }
-    // ▲▲▲ END: 
     
     const validateSession = async () => {
       try {
@@ -150,7 +141,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     return () => {
       clearInterval(intervalId);
     };
-  }, [isProcessingLink, justLoggedInViaLink]); // 
+  }, [isProcessingLink]); // 
   // ▲▲▲ 
 
   const value = { currentUser, login, logout, isLoading };
