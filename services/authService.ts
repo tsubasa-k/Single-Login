@@ -1,10 +1,17 @@
-import { db } from './firebaseConfig';
+import { db, auth } from './firebaseConfig'; // 
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { isIpSuspicious } from './ipWhitelist'; // ▼▼▼ START: 匯入新的檢查函式 ▼▼▼
+import { isIpSuspicious } from './ipWhitelist'; 
+// 
+import { 
+  createUserWithEmailAndPassword, 
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
 
 const DEVICE_ID_KEY = 'app_device_id';
 
-// getOrCreateDeviceId 函數維持不變
+// getOrCreateDeviceId 
 export const getOrCreateDeviceId = (): string => {
     let deviceId = localStorage.getItem(DEVICE_ID_KEY);
     if (!deviceId) {
@@ -14,7 +21,7 @@ export const getOrCreateDeviceId = (): string => {
     return deviceId;
 }
 
-// getUserIP 函數維持不變
+// getUserIP 
 const getUserIP = async (): Promise<string | null> => {
   const ipServices = [
     'https://api.ipify.org?format=json',
@@ -34,16 +41,16 @@ const getUserIP = async (): Promise<string | null> => {
   return null;
 };
 
-// ▲▲▲ END: 移除舊的 isIpSuspicious 函式 ▲▲▲
 
-
-// registerUser 函數維持不變 (儲存 registrationIp)
-export const registerUser = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
+// 
+export const registerUser = async (username: string, email: string, password: string): Promise<{ success: boolean; message: string }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
   
   if (!username.trim()) {
     return { success: false, message: '使用者名稱不能為空。' };
   }
+  
+  // 1. 
   const userRef = doc(db, "users", username);
   const userSnap = await getDoc(userRef);
 
@@ -51,22 +58,44 @@ export const registerUser = async (username: string, password: string): Promise<
     return { success: false, message: '此使用者名稱已被註冊。' };
   }
 
-  const registrationIp = await getUserIP();
-  
-  await setDoc(userRef, {
-      password, 
-      loggedInDeviceId: null,
-      activeSessionId: null,
-      loggedInIp: null,
-      registrationIp: registrationIp, // 儲存註冊時的 IP
-      createdAt: serverTimestamp()
-  });
-  
-  return { success: true, message: '註冊成功！您現在可以登入。' };
+  // 2. 
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+
+    // 3. 
+    await sendEmailVerification(user);
+
+    // 4. 
+    const registrationIp = await getUserIP();
+    await setDoc(userRef, {
+        email: email, // 
+        uid: user.uid, // 
+        loggedInDeviceId: null,
+        activeSessionId: null,
+        loggedInIp: null,
+        registrationIp: registrationIp,
+        createdAt: serverTimestamp()
+        // 
+    });
+    
+    return { success: true, message: '註冊成功！請檢查您的 Email 信箱以完成驗證。' };
+
+  } catch (error: any) {
+    // 
+    if (error.code === 'auth/email-already-in-use') {
+      return { success: false, message: '此 Email 已被註冊。' };
+    }
+    if (error.code === 'auth/weak-password') {
+      return { success: false, message: '密碼強度不足，請至少設定 6 個字元。' };
+    }
+    console.error("Firebase Auth Error:", error);
+    return { success: false, message: '註冊時發生錯誤。' };
+  }
 };
 
 
-// loginUser 函數維持不變，僅修改提示訊息
+// 
 export const loginUser = async (
   username: string, 
   password: string, 
@@ -77,9 +106,11 @@ export const loginUser = async (
   message: string; 
   sessionId?: string; 
   needsVerification?: boolean; 
+  emailNotVerified?: boolean; // 
 }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
 
+  // 1. 
   const userRef = doc(db, "users", username);
   const userSnap = await getDoc(userRef);
   
@@ -88,26 +119,46 @@ export const loginUser = async (
   }
   
   const userAccount = userSnap.data();
+  const email = userAccount.email; // 
 
-  if (userAccount.password !== password) {
-      return { success: false, message: '無效的使用者名稱或密碼。' };
+  if (!email) {
+      return { success: false, message: '帳號資料不完整，缺少 Email 無法登入。' };
   }
 
+  // 2. 
+  let user;
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    user = userCredential.user;
+  } catch (error: any) {
+    // 
+    return { success: false, message: '無效的使用者名稱或密碼。' };
+  }
+
+  // 3. 
+  if (!user.emailVerified) {
+    return { 
+      success: false, 
+      message: '您的 Email 尚未驗證。請檢查您的信箱並點擊驗證連結。',
+      emailNotVerified: true // 
+    };
+  }
+  
+  // 4. 
   const currentUserIp = await getUserIP();
-  const isSuspicious = isIpSuspicious(currentUserIp); // 使用新的檢查函式
+  const isSuspicious = isIpSuspicious(currentUserIp); 
 
   if (isSuspicious && !forceLogin) {
     const regIpInfo = userAccount.registrationIp ? `(您註冊時的 IP 來源: ${userAccount.registrationIp})` : '';
     
-    // ▼▼▼ START: 更新提示訊息 ▼▼▼
     return {
       success: false,
       message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。此 IP 未被辨識為臺灣學術網路 (TANet) 的一部分。${regIpInfo} 如果您認得此活動，請再次點擊登入以確認。`,
       needsVerification: true
     };
-    // ▲▲▲ END: 更新提示訊息 ▲▲▲
   }
   
+  // 5. 
   if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
       if (userAccount.loggedInDeviceId !== deviceId) {
           const ipInfo = userAccount.loggedInIp ? ` (IP: ${userAccount.loggedInIp})` : '';
@@ -117,6 +168,7 @@ export const loginUser = async (
       }
   }
 
+  // 6. 
   const newSessionId = self.crypto.randomUUID();
   
   await updateDoc(userRef, {
@@ -129,45 +181,68 @@ export const loginUser = async (
   return { success: true, message: '登入成功！', sessionId: newSessionId };
 };
 
-// logoutUser 函數維持不變
+// 
 export const logoutUser = async (username: string): Promise<void> => {
   if (!username) {
     console.warn("Logout attempt without username.");
-    return;
+  } else {
+    // 
+    const userRef = doc(db, "users", username);
+    await updateDoc(userRef, {
+      loggedInDeviceId: null,
+      activeSessionId: null,
+      loggedInIp: null
+    }).catch(err => console.error("Error during Firestore logout:", err));
   }
-  await new Promise(resolve => setTimeout(resolve, 300));
-  const userRef = doc(db, "users", username);
   
-  await updateDoc(userRef, {
-    loggedInDeviceId: null,
-    activeSessionId: null,
-    loggedInIp: null
-  }).catch(err => console.error("Error during logout:", err));
+  // 
+  await signOut(auth).catch(err => console.error("Error during Auth signout:", err));
 };
 
-// isSessionStillValid 函數維持不變 (它會自動使用新的 isIpSuspicious)
+// 
 export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
+  
+  // 1. 
+  if (!auth.currentUser) {
+    console.warn("Auth session missing, forcing logout.");
+    return false;
+  }
+  
+  // 2. 
+  if (!auth.currentUser.emailVerified) {
+    console.warn("Auth user email not verified, forcing logout.");
+    await logoutUser(username); // 
+    return false;
+  }
+
+  // 3. 
   const userRef = doc(db, "users", username);
   const userSnap = await getDoc(userRef);
   
   if (!userSnap.exists()) return false;
 
   const userAccount = userSnap.data();
+
+  // 4. 
+  if (userAccount.email !== auth.currentUser.email) {
+    console.warn("Auth user email mismatch with Firestore email, forcing logout.");
+    await logoutUser(username);
+    return false;
+  }
   
+  // 5. 
   if (userAccount.loggedInDeviceId !== deviceId || userAccount.activeSessionId !== sessionId) {
       return false;
   }
 
+  // 6. 
   const currentUserIp = await getUserIP();
-  
-  // ▼▼▼ START: 這裡會自動使用新的 IP 白名單檢查 ▼▼▼
   const isSuspicious = isIpSuspicious(currentUserIp);
   if (isSuspicious) {
     console.warn("Session IP is from a suspicious range (non-TANet). Logging out.");
     await logoutUser(username);
     return false;
   }
-  // ▲▲▲ END: IP 白名單檢查 ▲▲▲
 
   if (userAccount.loggedInIp && currentUserIp && userAccount.loggedInIp !== currentUserIp) {
       console.warn("Session IP mismatch. Logging out.");
