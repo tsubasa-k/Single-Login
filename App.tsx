@@ -5,11 +5,11 @@ import { RegisterPage } from './components/RegisterPage';
 import { CurrentUser, AuthContextType } from './types';
 import * as authService from './services/authService';
 import { SunIcon, MoonIcon } from './components/icons';
+// ▼▼▼ START: 匯入新的 TOTP 設定頁面 ▼▼▼
+import { SetupTotpPage } from './components/SetupTotpPage'; 
+// ▲▲▲ END: 匯入新的 TOTP 設定頁面 ▼▲▲
 
-// ▼▼▼ START: 匯入 Auth 相關函式 ▼▼▼
-import { auth } from './services/firebaseConfig';
-import { isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
-// ▲▲▲ END: 匯入 Auth 相關函式 ▼▲▲
+// 移除了 Email Link 相關的 import
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -17,11 +17,10 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  // ▼▼▼ START: 
-  const [isProcessingLink, setIsProcessingLink] = useState(true);
-  // ▲▲▲ END: 
+  // 移除了 isProcessingLink 和 justLoggedInViaLink
 
   const logout = useCallback(async () => {
+    // logout 函式維持不變
     if (currentUser) {
       setIsLoading(true);
       await authService.logoutUser(currentUser.username);
@@ -31,7 +30,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     }
   }, [currentUser]);
 
-  // (beforeunload effect 
+  // beforeunload effect 維持不變
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault(); 
@@ -45,73 +44,18 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     };
   }, [currentUser, logout]);
 
-
+  // login 函式維持不變
   const login = useCallback((username: string, sessionId: string) => {
     const user: CurrentUser = { username, sessionId };
     setCurrentUser(user);
     sessionStorage.setItem('currentUser', JSON.stringify(user));
   }, []);
 
-  // ▼▼▼ START: 
+  // 移除了處理 Email Link 的 useEffect
+
+  // session validation effect (大致不變，移除 isProcessingLink 依賴)
   useEffect(() => {
-    const handleEmailLinkLogin = async () => {
-      if (isSignInWithEmailLink(auth, window.location.href)) {
-        setIsLoading(true); // 
-        let email = localStorage.getItem('emailForSignIn');
-        let username = localStorage.getItem('usernameForSignIn');
-        
-        if (!email || !username) {
-          console.error("Email 連結登入失敗：找不到快取的 Email 或使用者名稱。");
-          alert("Email 連結登入失敗，請重新登入。");
-          setIsProcessingLink(false);
-          setIsLoading(false);
-          window.history.replaceState(null, '', window.location.origin);
-          return;
-        }
-
-        try {
-          // 1. 
-          await signInWithEmailLink(auth, email, window.location.href);
-          
-          // 2. 
-          const authResult = await authService.authorizeIpAndLogout(username);
-
-          if (authResult.success) {
-            // 
-            alert("您的裝置與 IP 已授權成功。請重新登入。");
-          } else {
-            // 
-            console.error(authResult.message);
-            alert(`IP 授權失敗: ${authResult.message}`);
-          }
-          
-        } catch (error) {
-          console.error("Email 連結處理時發生錯誤:", error);
-          alert(`連結處理失敗: ${error}`);
-        } finally {
-          // 
-          localStorage.removeItem('emailForSignIn');
-          localStorage.removeItem('usernameForSignIn');
-          window.history.replaceState(null, '', window.location.origin);
-          setIsProcessingLink(false);
-          setIsLoading(false); // 
-        }
-      } else {
-        setIsProcessingLink(false);
-      }
-    };
-
-    handleEmailLinkLogin();
-  }, []); // 
-  // ▲▲▲ END: 
-
-  // (session validation effect / 
-  useEffect(() => {
-    // 
-    if (isProcessingLink) {
-      setIsLoading(true);
-      return; // 
-    }
+    // 移除了 isProcessingLink 和 justLoggedInViaLink 的檢查
     
     const validateSession = async () => {
       try {
@@ -120,6 +64,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           const storedUser: CurrentUser = JSON.parse(storedUserStr);
           const deviceId = authService.getOrCreateDeviceId();
           
+          // isSessionStillValid 會處理 Auth 狀態檢查
           if (await authService.isSessionStillValid(storedUser.username, deviceId, storedUser.sessionId)) {
             setCurrentUser(storedUser);
           } else {
@@ -136,22 +81,21 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
     validateSession();
     
+    // 定期檢查
     const intervalId = setInterval(validateSession, 60000); 
 
     return () => {
       clearInterval(intervalId);
     };
-  }, [isProcessingLink]); // 
-  // ▲▲▲ 
+  }, []); // 移除 isProcessingLink, justLoggedInViaLink
 
   const value = { currentUser, login, logout, isLoading };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-
+// ThemeToggle 維持不變
 const ThemeToggle: React.FC = () => {
-  // (ThemeToggle 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
       return localStorage.getItem('theme') === 'dark';
@@ -187,12 +131,15 @@ const ThemeToggle: React.FC = () => {
   );
 };
 
-
+// AppContent (加入 TOTP Setup 頁面邏輯)
 const AppContent: React.FC = () => {
   const { currentUser, isLoading } = React.useContext(AuthContext)!;
-  const [view, setView] = useState<'login' | 'register'>('login');
+  // ▼▼▼ START: 加入 setupTotp 狀態 ▼▼▼
+  const [view, setView] = useState<'login' | 'register' | 'setupTotp'>('login');
+  const [totpUsername, setTotpUsername] = useState<string | null>(null); // 用於傳遞 username
+  // ▲▲▲ END: 加入 setupTotp 狀態 ▼▲▲
 
-  // 
+  // Loading 畫面維持不變
   if (isLoading) { 
     return (
       <div className="flex items-center justify-center h-screen">
@@ -204,14 +151,38 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // mainContent (加入 TOTP 頁面渲染)
   const mainContent = () => {
     if (currentUser) {
       return <HomePage />;
     }
+    // ▼▼▼ START: 加入 setupTotp 邏輯 ▼▼▼
     if (view === 'login') {
       return <LoginPage onSwitchToRegister={() => setView('register')} />;
     }
-    return <RegisterPage onSwitchToLogin={() => setView('login')} />;
+    if (view === 'register') {
+      return <RegisterPage 
+                onSwitchToLogin={() => setView('login')} 
+                // 註冊成功後，設定 username 並切換到 setupTotp 畫面
+                onRegisterSuccess={(username) => {
+                  setTotpUsername(username); 
+                  setView('setupTotp');
+                }}
+              />;
+    }
+    if (view === 'setupTotp' && totpUsername) {
+      return <SetupTotpPage 
+                username={totpUsername}
+                // TOTP 設定完成後，清除 username 並切換回 login 畫面
+                onSetupComplete={() => {
+                  setTotpUsername(null);
+                  setView('login');
+                }}
+              />;
+    }
+    // 如果狀態不對，預設回到登入頁
+    return <LoginPage onSwitchToRegister={() => setView('register')} />;
+    // ▲▲▲ END: 加入 setupTotp 邏輯 ▼▲▲
   };
 
   return (
@@ -222,6 +193,7 @@ const AppContent: React.FC = () => {
   );
 };
 
+// App 函式維持不變
 function App() {
   return (
     <AuthProvider>
