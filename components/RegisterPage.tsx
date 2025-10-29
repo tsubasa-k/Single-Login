@@ -1,3 +1,4 @@
+console.log("--- Loading RegisterPage.tsx ---");
 import React, { useState } from 'react';
 import * as authService from '../services/authService';
 import { UserIcon, LockIcon, EmailIcon } from './icons';
