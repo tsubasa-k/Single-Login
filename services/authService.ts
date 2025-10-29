@@ -1,22 +1,19 @@
 import { db, auth } from './firebaseConfig';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore"; // 
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore"; 
 import { isIpSuspicious } from './ipWhitelist'; 
 import { 
   createUserWithEmailAndPassword, 
   sendEmailVerification,
   signInWithEmailAndPassword,
   signOut,
-  sendSignInLinkToEmail // 
+  sendSignInLinkToEmail 
 } from "firebase/auth";
 
 const DEVICE_ID_KEY = 'app_device_id';
 
-// 
 const actionCodeSettings = {
-  // 
-  // 
-  url: window.location.origin, // 
-  handleCodeInApp: true, // 
+  url: window.location.origin, 
+  handleCodeInApp: true, 
 };
 
 // getOrCreateDeviceId 
@@ -71,7 +68,6 @@ export const registerUser = async (username: string, email: string, password: st
 
     const registrationIp = await getUserIP();
     
-    // 
     await setDoc(userRef, {
         email: email,
         uid: user.uid,
@@ -79,7 +75,7 @@ export const registerUser = async (username: string, email: string, password: st
         activeSessionId: null,
         loggedInIp: null,
         registrationIp: registrationIp,
-        trustedIps: registrationIp ? [registrationIp] : [], // 
+        trustedIps: registrationIp ? [registrationIp] : [], 
         createdAt: serverTimestamp()
     });
     
@@ -104,7 +100,7 @@ export const loginUser = async (
 ): Promise<{ 
   success: boolean; 
   message: string; 
-  needsEmailLink?: boolean; // 
+  needsEmailLink?: boolean; 
   emailNotVerified?: boolean; 
 }> => {
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -156,11 +152,9 @@ export const loginUser = async (
   try {
     // 
     localStorage.setItem('emailForSignIn', email);
-    localStorage.setItem('usernameForSignIn', username); // 
+    localStorage.setItem('usernameForSignIn', username); 
 
-    // ▼▼▼ START: 在這裡加入 console.log ▼▼▼
     console.log("正在發送 Email 連結，使用的 URL 是:", actionCodeSettings.url);
-    // ▲▲▲ END: 加入 console.log ▲▲▲
 
     await sendSignInLinkToEmail(auth, email, actionCodeSettings);
     
@@ -169,19 +163,18 @@ export const loginUser = async (
       message: `偵測到從一個不熟悉的 IP (${currentUserIp || '未知'}) 登入。我們已發送一封【安全登入連結】到您的 Email 信箱。請點擊該連結以授權此裝置並登入。`,
       needsEmailLink: true
     };
-  } catch (error: any) { // ▼▼▼ START: 
+  } catch (error: any) { 
     console.error("Error sending sign-in link:", error);
-    // 
     const specificError = (error as Error).message || '未知錯誤';
     return { 
       success: false, 
       message: `嘗試發送 Email 連結時失敗：${specificError}。請檢查 Firebase 控制台的「Authorized domains」設定。` 
     };
-    // ▲▲▲ END: 
   }
 };
 
-// 
+
+// createSession 
 export const createSession = async (
   username: string,
   deviceId: string
@@ -197,7 +190,6 @@ export const createSession = async (
   }
   const userAccount = userSnap.data();
   
-  // 
   if (userAccount.loggedInDeviceId && userAccount.activeSessionId) {
       if (userAccount.loggedInDeviceId !== deviceId) {
           const ipInfo = userAccount.loggedInIp ? ` (IP: ${userAccount.loggedInIp})` : '';
@@ -210,15 +202,13 @@ export const createSession = async (
   const currentUserIp = await getUserIP();
   const newSessionId = self.crypto.randomUUID();
   
-  // 
   const updateData: any = {
       loggedInDeviceId: deviceId,
       activeSessionId: newSessionId,
-      loggedInIp: currentUserIp, // 
+      loggedInIp: currentUserIp, 
       lastLogin: serverTimestamp()
   };
 
-  // 
   if (currentUserIp && (!userAccount.trustedIps || !userAccount.trustedIps.includes(currentUserIp))) {
       updateData.trustedIps = arrayUnion(currentUserIp);
   }
@@ -229,6 +219,9 @@ export const createSession = async (
 }
 
 
+// ▼▼▼ START: 新增/更新此函式 ▼▼▼
+/**
+ * * * */
 export const authorizeIpAndLogout = async (
   username: string
 ): Promise<{ success: boolean; message: string; }> => {
@@ -243,12 +236,21 @@ export const authorizeIpAndLogout = async (
 
   const currentUserIp = await getUserIP();
   
+  // ▼▼▼ START: 
+  if (!currentUserIp) {
+    console.error("無法獲取 IP，授權失敗。");
+    await signOut(auth);
+    return { success: false, message: "無法獲取您的 IP 位址，授權失敗。請檢查您的網路連線或稍後再試。" };
+  }
+  // ▲▲▲ END: 
+
   // 
-  if (currentUserIp && (!userAccount.trustedIps || !userAccount.trustedIps.includes(currentUserIp))) {
+  if (!userAccount.trustedIps || !userAccount.trustedIps.includes(currentUserIp)) {
     try {
       await updateDoc(userRef, {
         trustedIps: arrayUnion(currentUserIp)
       });
+      console.log(`IP ${currentUserIp} 已成功加入 ${username} 的信任列表。`);
     } catch (error: any) {
       console.error("更新 trustedIps 失敗:", error);
       await signOut(auth);
@@ -260,6 +262,7 @@ export const authorizeIpAndLogout = async (
   await signOut(auth);
   return { success: true, message: "IP 授權成功並已登出。" };
 }
+// ▲▲▲ END: 新增/更新此函式 ▲▲▲
 
 
 // logoutUser 
@@ -277,6 +280,7 @@ export const logoutUser = async (username: string): Promise<void> => {
   
   await signOut(auth).catch(err => console.error("Error during Auth signout:", err));
 };
+
 
 // isSessionStillValid (
 export const isSessionStillValid = async (username: string, deviceId: string, sessionId: string): Promise<boolean> => {
