@@ -10,6 +10,9 @@ import {
 } from "firebase/auth";
 
 const DEVICE_ID_KEY = 'app_device_id';
+// ▼▼▼ START: 
+const JUST_AUTHORIZED_IP_KEY = 'justAuthorizedIp';
+// ▲▲▲ END: 
 
 const actionCodeSettings = {
   url: window.location.origin, 
@@ -140,11 +143,15 @@ export const loginUser = async (
   // 3. 
   const currentUserIp = await getUserIP();
   const isTANet = !isIpSuspicious(currentUserIp);
-  const isTrusted = userAccount.trustedIps && userAccount.trustedIps.includes(currentUserIp);
+  const isTrustedInDb = userAccount.trustedIps && userAccount.trustedIps.includes(currentUserIp);
+  // ▼▼▼ START: 
+  const isJustAuthorized = localStorage.getItem(JUST_AUTHORIZED_IP_KEY) === currentUserIp;
+  // ▲▲▲ END: 
 
-  // 
-  if (isTANet || isTrusted) {
-    // 
+  // ▼▼▼ START: 
+  if (isTANet || isTrustedInDb || isJustAuthorized) {
+    localStorage.removeItem(JUST_AUTHORIZED_IP_KEY); // 
+    // ▲▲▲ END: 
     return { success: true, message: "IP 驗證成功，正在建立安全連線..." };
   }
 
@@ -212,6 +219,11 @@ export const createSession = async (
   if (currentUserIp && (!userAccount.trustedIps || !userAccount.trustedIps.includes(currentUserIp))) {
       updateData.trustedIps = arrayUnion(currentUserIp);
   }
+  
+  // ▼▼▼ START: 
+  // 
+  localStorage.removeItem(JUST_AUTHORIZED_IP_KEY);
+  // ▲▲▲ END: 
 
   await updateDoc(userRef, updateData);
 
@@ -219,7 +231,7 @@ export const createSession = async (
 }
 
 
-// ▼▼▼ START: 新增/更新此函式 ▼▼▼
+// ▼▼▼ START: 
 /**
  * * * */
 export const authorizeIpAndLogout = async (
@@ -236,13 +248,11 @@ export const authorizeIpAndLogout = async (
 
   const currentUserIp = await getUserIP();
   
-  // ▼▼▼ START: 
   if (!currentUserIp) {
     console.error("無法獲取 IP，授權失敗。");
     await signOut(auth);
     return { success: false, message: "無法獲取您的 IP 位址，授權失敗。請檢查您的網路連線或稍後再試。" };
   }
-  // ▲▲▲ END: 
 
   // 
   if (!userAccount.trustedIps || !userAccount.trustedIps.includes(currentUserIp)) {
@@ -257,12 +267,16 @@ export const authorizeIpAndLogout = async (
       return { success: false, message: `授權 IP 時出錯: ${error.message}` };
     }
   }
+  
+  // ▼▼▼ START: 
+  localStorage.setItem(JUST_AUTHORIZED_IP_KEY, currentUserIp);
+  // ▲▲▲ END: 
 
   // 
   await signOut(auth);
   return { success: true, message: "IP 授權成功並已登出。" };
 }
-// ▲▲▲ END: 新增/更新此函式 ▲▲▲
+// ▲▲▲ END: 
 
 
 // logoutUser 
@@ -277,6 +291,10 @@ export const logoutUser = async (username: string): Promise<void> => {
       loggedInIp: null
     }).catch(err => console.error("Error during Firestore logout:", err));
   }
+  
+  // ▼▼▼ START: 
+  localStorage.removeItem(JUST_AUTHORIZED_IP_KEY);
+  // ▲▲▲ END: 
   
   await signOut(auth).catch(err => console.error("Error during Auth signout:", err));
 };
@@ -310,6 +328,16 @@ export const isSessionStillValid = async (username: string, deviceId: string, se
   // 
   const isTANet = !isIpSuspicious(currentUserIp);
   const isTrusted = userAccount.trustedIps && userAccount.trustedIps.includes(currentUserIp);
+  
+  // ▼▼▼ START: 
+  // 
+  // 
+  const isJustAuthorized = localStorage.getItem(JUST_AUTHORIZED_IP_KEY) === currentUserIp;
+  if (isJustAuthorized) {
+      localStorage.removeItem(JUST_AUTHORIZED_IP_KEY);
+      return true;
+  }
+  // ▲▲▲ END: 
 
   if (!isTANet && !isTrusted) {
     console.warn("Session IP is suspicious and not in trusted list. Logging out.");
