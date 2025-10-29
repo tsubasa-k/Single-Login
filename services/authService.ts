@@ -1,3 +1,4 @@
+console.log("--- Loading authService.ts ---");
 import { db, auth } from './firebaseConfig';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore"; 
 import { isIpSuspicious } from './ipWhitelist'; 
